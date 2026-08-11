@@ -42,6 +42,20 @@ assert "{{" not in html
 packed = gzip.compress(blob, 9)
 (out / "timemap.bin.gz").write_bytes(packed)
 
+# dist/ is the deployable artefact, so its host config ships inside it. The payload is
+# pinned to octet-stream: some CDNs see .gz and set Content-Encoding, which would make the
+# browser inflate it before the page does (the page sniffs for that too).
+(out / "vercel.json").write_text(json.dumps({
+    "$schema": "https://openapi.vercel.sh/vercel.json",
+    "headers": [
+        {"source": "/timemap.bin.gz", "headers": [
+            {"key": "Content-Type", "value": "application/octet-stream"},
+            {"key": "Cache-Control", "value": "public, max-age=31536000, immutable"}]},
+        {"source": "/og.png", "headers": [
+            {"key": "Cache-Control", "value": "public, max-age=86400"}]},
+    ],
+}, indent=2) + "\n")
+
 print(f"dist/index.html     {len(html) / 1024:.0f} KB")
 print(f"dist/timemap.bin.gz {len(packed) / 1048576:.2f} MB "
       f"({len(blob) / 1048576:.2f} MB inflated, {len(packed) / len(blob):.0%})")
