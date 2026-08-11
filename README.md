@@ -132,6 +132,26 @@ driving and the best flight itinerary, using the top 70 CONUS airports by route 
 Flying is a model, not a timetable: it assumes a seat is available whenever you want one. Drive
 times are measured.
 
+**Fly is a crumpled map, and that is the finding, not a bug.** Two things do it. The radial range
+collapses — the p95/p5 spread of time-distance is 7.2× driving and **2.9× flying**, because a
+flight is ~3.7 h of fixed overhead plus 0.00125 h/km, so an eightfold spread in real distance
+becomes a threefold spread in time. And the sheet folds: **36% of triangles invert** against 1.4%
+for driving. The folding is not at the drive/fly boundary — triangles whose three counties all
+drive invert 0.6% of the time — it is *inside* the flown region, at 41.6%. Once you are flying,
+your time is set by which airport you land at and how far you then drive, not by how far the
+destination is. At 1 h = 100 km, an extra hour of airport transfer moves a county 100 km, while an
+extra 100 km of flight moves it 12.5 km. The signal is eight times weaker than the noise.
+
+No constant in the flight model repairs this, which is worth saying because it looks like it
+should. Measured over 14 origins: `CONNECT` 1.4 → 0 gives 37.0% folded, `N_NEAR_AIRPORTS` 5 → 1
+gives 35.6%, `MIN_FLY_KM` 300 → 600 gives 36.2%, `CRUISE` 800 → 500 gives 32.4%, and making each
+destination use its own nearest airport gives 37.6%. None of them touch the ratio above.
+
+What does unfold it is easing the warp, so **Fly stops the slider at the notch**. Exaggeration
+makes Fly monotonically worse — 36% folded at 1.0×, 49% at 2.6× — because the multimodal stretch
+is mostly below 1 and `s → sᵏ` drags far places inward past near ones. Pull the slider the other
+way instead: halfway back toward the real map, folding drops to 10.4%.
+
 Colour is sequential in Drive (nothing is ever faster than the paper scale) and diverging in Fly,
 where a place can be closer in time than in space. Each arm's span is set from the 1st and 99th
 percentile of that field — the fly field runs 0.24× to 1.50×, so a symmetric ramp would waste an

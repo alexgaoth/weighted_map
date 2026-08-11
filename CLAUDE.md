@@ -33,6 +33,10 @@ Maps of the contiguous US where distance from an origin is replaced by travel ti
   included, or the origin dots and the framing float off the surface.
 - The per-mode colour spans `23_build_dist.py` measures also set the **terrain height** — `lift()`
   divides by the same `uSpanPos`/`uSpanNeg`. Re-picking those percentiles reshapes the relief.
+- **Fly caps exaggeration at 1.0** (`syncWarpRange()`). Its stretch is mostly below 1, so `s^k`
+  pulls far places inward past near ones: folded triangles go 36% → 49% from 1.0× to 2.6×. Don't
+  "fix" Fly's crumpling with the flight constants either — `CONNECT`, `N_NEAR_AIRPORTS`,
+  `MIN_FLY_KM` and `CRUISE` were all measured and none move folding off ~36%.
 
 ## Gotchas
 

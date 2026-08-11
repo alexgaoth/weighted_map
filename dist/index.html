@@ -95,6 +95,8 @@
       linear-gradient(90deg, var(--edge) 37.6%, var(--ink2) 37.6% 39.2%, var(--edge) 39.2%); }
   .lab[data-to] { cursor:pointer; }
   .lab[data-to]:hover { color:var(--ink2); }
+  .lab.off { opacity:.32; cursor:default; }
+  .lab.off:hover { color:var(--ink3); }
 
   /* under the title, not by the bar — the bar is centred and grows with every control */
   #key { top:148px; left:16px; padding:9px 11px; }
@@ -173,7 +175,7 @@
   <div class="grp"><span class="lab" data-to="min">real</span>
     <input type="range" id="warp" min="0" max="260" value="100"
            aria-label="Real map, to time map, to exaggerated">
-    <span class="lab" data-to="max">stretched</span></div>
+    <span class="lab" data-to="max" id="warpmax">stretched</span></div>
   <div class="sep"></div>
   <div class="grp"><span class="lab" data-to="min">flat</span>
     <input type="range" id="hgt" min="0" max="100" value="58" aria-label="Relief height">
@@ -483,7 +485,7 @@ function start(bytes) {
     if (user) { touring = false; syncTour(); }
     document.querySelectorAll("#modes button").forEach(b =>
       b.classList.toggle("on", +b.dataset.mode === m));
-    applyPalette(); updateReadout(); syncURL();
+    applyPalette(); updateReadout(); syncWarpRange(); syncURL();
   }
   function syncURL() {
     const p = new URLSearchParams();
@@ -524,13 +526,23 @@ function start(bytes) {
     b.onclick = () => goto(B.o, +b.dataset.mode));
   // One axis, not two: below the notch the real map dissolves into the time map, above it
   // the same warp is pushed further. They only ever looked like two controls.
-  const warp = document.getElementById("warp");
+  const warp = document.getElementById("warp"), warpMax = document.getElementById("warpmax");
+  // Exaggerating Fly is not a stronger version of Fly, it is a broken one: the multimodal
+  // stretch is mostly below 1, so s^k pulls far places *inward* past near ones. Measured on
+  // the county sample, folded triangles go 36% -> 49% between 1.0x and 2.6x. So Fly stops
+  // at the notch, and the way to make it legible is the other half of the same slider.
   warp.oninput = () => {
+    const cap = B.m ? 100 : 260;
+    if (+warp.value > cap) warp.value = cap;
     if (Math.abs(+warp.value - 100) < 7) warp.value = 100;      // the notch is magnetic
     const v = +warp.value / 100;
     revealTo = Math.min(1, v); exagTo = Math.max(1, v);
     syncURL();
   };
+  function syncWarpRange() {                 // grey the half that does nothing in this mode
+    warpMax.classList.toggle("off", B.m === 1);
+    if (B.m && +warp.value > 100) { warp.value = 100; warp.oninput(); }
+  }
   // the end labels are buttons: click one and the slider goes there
   document.getElementById("bar").addEventListener("click", (e) => {
     const to = e.target.dataset && e.target.dataset.to;
@@ -980,7 +992,7 @@ function start(bytes) {
   if (t0 !== null) reveal = revealTo = t0;
   warp.value = Math.round((revealTo < 1 ? revealTo : exagTo) * 100);
 
-  resize(); applyPalette(); updateReadout();
+  resize(); applyPalette(); updateReadout(); syncWarpRange();
   boot.classList.add("gone");
   setTimeout(() => boot.remove(), 600);
   requestAnimationFrame(frame);
