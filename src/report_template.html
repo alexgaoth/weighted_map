@@ -1,0 +1,484 @@
+<title>The United States, redrawn by driving time</title>
+<style>
+  :root {
+    --ground:  #eaeeea;
+    --surface: #fcfcfb;
+    --ink:     #101512;
+    --ink-2:   #4b524d;
+    --ink-3:   #7d847e;
+    --rule:    #d3dad3;
+    --rule-2:  #e6eae6;
+    --accent:  #2a78d6;
+    --warm:    #b4491a;
+    --lift:    0 1px 1px rgba(16,21,18,.04), 0 10px 30px -18px rgba(16,21,18,.35);
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --measure: 67ch;
+    --plate: min(1180px, 94vw);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:  #0e100f;
+      --surface: #1a1a19;
+      --ink:     #eef1ee;
+      --ink-2:   #a9b0aa;
+      --ink-3:   #7d847e;
+      --rule:    #2b302c;
+      --rule-2:  #232724;
+      --accent:  #3987e5;
+      --warm:    #e07a4a;
+      --lift:    0 1px 1px rgba(0,0,0,.5), 0 10px 30px -18px rgba(0,0,0,.9);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:  #0e100f;
+    --surface: #1a1a19;
+    --ink:     #eef1ee;
+    --ink-2:   #a9b0aa;
+    --ink-3:   #7d847e;
+    --rule:    #2b302c;
+    --rule-2:  #232724;
+    --accent:  #3987e5;
+    --warm:    #e07a4a;
+    --lift:    0 1px 1px rgba(0,0,0,.5), 0 10px 30px -18px rgba(0,0,0,.9);
+  }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    display: grid;
+    grid-template-columns:
+      [full-start] 1fr [main-start] min(var(--measure), 92vw) [main-end] 1fr [full-end];
+    row-gap: 1.15rem;
+    padding: clamp(2.5rem, 7vw, 5.5rem) 0 5rem;
+  }
+  .wrap > * { grid-column: main; }
+  .wrap > .full { grid-column: full; justify-self: center; width: var(--plate); }
+
+  h1, h2, h3 { text-wrap: balance; letter-spacing: -0.022em; line-height: 1.14; }
+  h1 { font-size: clamp(2.1rem, 5.6vw, 3.35rem); font-weight: 700; margin-bottom: .1em; }
+  h2 {
+    font-size: clamp(1.35rem, 3vw, 1.72rem); font-weight: 650;
+    margin-top: 2.6rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+  }
+  h3 { font-size: 1.06rem; font-weight: 650; letter-spacing: -0.01em; }
+  p { max-width: var(--measure); }
+  strong { font-weight: 620; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: .715rem; text-transform: uppercase;
+    letter-spacing: .15em; color: var(--ink-3);
+  }
+  .standfirst {
+    font-size: clamp(1.05rem, 2.3vw, 1.2rem); color: var(--ink-2);
+    line-height: 1.55; margin-top: .55rem;
+  }
+  .byline {
+    font-family: var(--mono); font-size: .78rem; color: var(--ink-3);
+    margin-top: 1.4rem; padding-top: 1rem; border-top: 1px solid var(--rule);
+  }
+
+  /* ---- key numbers ---- */
+  .tiles {
+    display: flex; flex-wrap: wrap;
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+    margin: 2rem 0 .5rem;
+  }
+  .tile {
+    background: var(--surface); padding: .95rem 1.05rem 1.05rem;
+    flex: 1 1 145px;
+  }
+  .tile b {
+    display: block; font-family: var(--mono); font-variant-numeric: tabular-nums;
+    font-size: 1.5rem; font-weight: 600; letter-spacing: -.03em; line-height: 1.1;
+  }
+  .tile span { display: block; font-size: .8rem; color: var(--ink-2); margin-top: .3rem; }
+
+  /* ---- plates ---- */
+  figure.full { margin: 2.2rem 0 1rem; }
+  .plate-head { display: flex; align-items: baseline; gap: .85rem; margin-bottom: .7rem; }
+  .plate-no {
+    font-family: var(--mono); font-size: .715rem; text-transform: uppercase;
+    letter-spacing: .15em; color: var(--warm); white-space: nowrap;
+  }
+  .plate-img {
+    background: var(--surface); border: 1px solid var(--rule);
+    box-shadow: var(--lift); overflow: hidden;
+  }
+  .plate-img img { width: 100%; height: auto; }
+  figcaption {
+    font-size: .845rem; color: var(--ink-2); margin-top: .75rem;
+    max-width: 80ch; line-height: 1.55;
+  }
+  /* Every theme rule below is scoped through .plate-img so it outranks the
+     rule above; a bare .fig-dark loses to .plate-img img on specificity. */
+  .plate-img img.fig-light { display: block; }
+  .plate-img img.fig-dark  { display: none; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .plate-img img.fig-light { display: none; }
+    :root:not([data-theme="light"]) .plate-img img.fig-dark  { display: block; }
+  }
+  :root[data-theme="dark"] .plate-img img.fig-light { display: none; }
+  :root[data-theme="dark"] .plate-img img.fig-dark  { display: block; }
+
+  /* ---- tables ---- */
+  .scroll { overflow-x: auto; margin: 1.3rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: .845rem; }
+  caption {
+    text-align: left; font-size: .845rem; color: var(--ink-2);
+    padding-bottom: .6rem; max-width: 78ch;
+  }
+  th, td { padding: .48rem .8rem .48rem 0; text-align: left; white-space: nowrap; }
+  th {
+    font-family: var(--mono); font-size: .7rem; text-transform: uppercase;
+    letter-spacing: .09em; color: var(--ink-3); font-weight: 400;
+    border-bottom: 1px solid var(--rule); vertical-align: bottom;
+  }
+  td { border-bottom: 1px solid var(--rule-2); }
+  tbody tr:last-child td { border-bottom: 1px solid var(--rule); }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+  th.num { text-align: right; }
+  .place { font-weight: 550; }
+  .dim { color: var(--ink-3); }
+  td.note { white-space: normal; min-width: 24ch; padding-left: .4rem; }
+
+  /* ---- notes ---- */
+  .notes { margin: 1.2rem 0; padding: 0; list-style: none; display: grid; gap: .95rem; }
+  .notes li { display: grid; grid-template-columns: 1.6rem 1fr; gap: .6rem; }
+  .notes .n {
+    font-family: var(--mono); font-size: .72rem; color: var(--ink-3);
+    padding-top: .28rem; letter-spacing: .06em;
+  }
+  .notes p { margin: 0; font-size: .93rem; color: var(--ink-2); }
+  .notes b { color: var(--ink); font-weight: 600; }
+
+  .live {
+    display:block; margin:1.6rem 0; padding:.95rem 1.1rem; text-decoration:none;
+    border:1px solid var(--rule); background:var(--surface); color:var(--ink);
+    transition:border-color .15s;
+  }
+  .live:hover { border-color:var(--accent); }
+  .live b { display:block; font-size:1.02rem; font-weight:640; letter-spacing:-.01em; }
+  .live span { display:block; font-size:.86rem; color:var(--ink-2); margin-top:.2rem; }
+  .live em { font-family:var(--mono); font-size:.7rem; text-transform:uppercase;
+             letter-spacing:.14em; color:var(--accent); font-style:normal; }
+  .pull {
+    border-left: 2px solid var(--warm); padding: .1rem 0 .1rem 1.15rem;
+    margin: 1.6rem 0; font-size: 1.06rem; color: var(--ink); max-width: 62ch;
+  }
+  code {
+    font-family: var(--mono); font-size: .88em; background: var(--rule-2);
+    padding: .1em .35em; border-radius: 2px;
+  }
+  ul.files { list-style: none; padding: 0; display: grid; gap: .4rem; font-size: .875rem; }
+  ul.files code { background: none; padding: 0; color: var(--accent); }
+  ul.files span { color: var(--ink-2); }
+</style>
+
+<div class="wrap">
+
+  <p class="eyebrow">Cartography · driving time · 3,109 counties</p>
+  <h1>The United States, redrawn by driving time</h1>
+  <p class="standfirst">
+    A road map is drawn from latitude and longitude, so the distance between two places is the
+    distance a crow would fly. Nobody drives like a crow. This map keeps every county's true compass
+    bearing from a fixed origin and throws its distance away, putting it back at the distance you
+    could have driven in the time the trip actually takes — one hour to a hundred kilometres.
+  </p>
+  <p class="byline">
+    After the Amap/Gaode “China by driving time” project · OpenStreetMap road network via OSRM ·
+    U.S. Census Bureau boundaries · 6,218 routes computed
+  </p>
+
+  <div class="tiles">
+    <div class="tile"><b>3,109</b><span>county seats, 48 states&nbsp;+&nbsp;DC</span></div>
+    <div class="tile"><b>101.4</b><span>median door-to-door km/h</span></div>
+    <div class="tile"><b>+25%</b><span>area of the DC map vs. reality</span></div>
+    <div class="tile"><b>194 km</b><span>median outward drift</span></div>
+    <div class="tile"><b>46.2 h</b><span>Capitol to the Oregon coast</span></div>
+  </div>
+
+  {{PLATE:hero_capitol:1:Washington D.C. as the origin}}
+  <figcaption>
+    The whole country inflates away from the Capitol, because almost nowhere can you average
+    100 km/h door to door. What matters is where it inflates <em>unevenly</em>. The corridor from
+    Virginia to Maine sits at the top of the scale, 1.4× and beyond — it costs far more time per
+    kilometre than the map suggests. The Great Basin and west Texas sit at the bottom, 1.03–1.07×:
+    out there, the driving is honest. The dashed grey line is the country as it really is.
+  </figcaption>
+  </figure>
+
+  <h2>What the map actually does</h2>
+  <p>
+    Pick an origin. For every county seat in the contiguous 48 states, ask a routing engine how long
+    the drive takes. Keep the bearing from the origin exactly as it is, then move the county to a new
+    distance: driving hours × 100 km. A place four hours away lands 400 km out, whether it is 200 km
+    or 380 km away in reality.
+  </p>
+  <p>
+    All of this happens in an azimuthal equidistant projection centred on the origin, where
+    straight-line distance from the centre <em>is</em> true geodesic distance and the polar angle
+    <em>is</em> true azimuth. In that plane the transformation is exactly the sentence above: keep
+    θ, replace r. The rings on the maps are therefore both distances and durations — the 10-hour
+    ring sits at 1,000 km.
+  </p>
+  <p>
+    The scale is not arbitrary in the way it first looks. Across all 6,218 routes the median
+    implied door-to-door speed is <strong>101.4 km/h</strong>. One hour to a hundred kilometres is
+    very nearly the speed of the American road network, which means the map's baseline is
+    "an average trip" and every departure from it is a place that is faster or slower than typical.
+  </p>
+
+  <a class="live" href="https://claude.ai/code/artifact/74642143-4d21-42c7-b213-5fbec6a70f13">
+    <em>Interactive</em>
+    <b>Watch the country reshape itself, live</b>
+    <span>The same construction running on the GPU, from any of 64 origins — with a slider that
+      dissolves the real map into the time map. 42,000 points re-projected every frame.</span>
+  </a>
+
+  {{PLATE:hero_center:2:Lebanon, Kansas as the origin}}
+  <figcaption>
+    The same construction from the geographic centre of the 48 states — the counterpart to running
+    the Chinese version from Yongdeng County rather than Tiananmen. From here the country balloons
+    39% in area and the peak of the scale sits <em>around</em> the origin, in western Kansas and Nebraska:
+    short trips across the Plains are the least efficient in the country, because the roads there
+    run north–south and east–west and nothing runs diagonally.
+  </figcaption>
+  </figure>
+
+  {{PLATE:drift:3:Every county's displacement}}
+  <figcaption>
+    3,109 threads, each running from a county seat's true position to where driving time puts it.
+    Nothing ever moves inward — road distance is never shorter than the straight line and cars do
+    not exceed 100 km/h door to door — so the picture is always an explosion outward. The length of
+    each thread is how much time the terrain, the water and the traffic are costing you.
+  </figcaption>
+  </figure>
+
+  <h2>Water bends this map further than mountains do</h2>
+  <p>
+    This is where the American result parts company with the Chinese one. In China the great
+    distortions are Tibet, Xinjiang and the northern Northeast: high, remote, hard to build roads
+    through. The United States has mountains too, but the interstate system crosses them at speed.
+    What the American map cannot absorb is <em>water</em>, and the ridge-and-valley grain of the
+    Appalachians.
+  </p>
+
+  <div class="scroll">
+    <table>
+      <caption>
+        The fifteen most stretched counties from the Capitol, excluding everything within 150 km of
+        the origin. Stretch is time-distance ÷ straight-line distance.
+      </caption>
+      <thead><tr>
+        <th>County seat</th><th>County</th>
+        <th class="num">straight</th><th class="num">by road</th><th class="num">drive</th>
+        <th class="num">km/h</th><th class="num">stretch</th>
+      </tr></thead>
+      <tbody>{{TABLE:capitol_top}}</tbody>
+    </table>
+  </div>
+
+  <p>
+    Nine of the top fifteen are the same two obstacles. <strong>Northampton and Accomack</strong>
+    counties sit on the Virginia Eastern Shore: 194 km from the Capitol as the crow flies, 327 km by
+    road, because the only way there is around the top of the Chesapeake or over the
+    Bay Bridge–Tunnel. <strong>Mathews and Gloucester</strong> are on the necks below it,
+    <strong>Cape May</strong> is across Delaware Bay, and <strong>Worcester</strong> is on the far
+    side of Delmarva. The Chesapeake is doing to the mid-Atlantic what the Himalaya does to
+    western China, on a smaller scale and for the same reason: you cannot drive across it.
+  </p>
+  <p>
+    The rest — <strong>Potter, Clinton, Mifflin, Centre, Cameron, Juniata</strong> — are all in the
+    same place, the ridge-and-valley Appalachians of central Pennsylvania. The ridges run
+    southwest–northeast in long parallel walls, and the roads run in the valleys between them.
+    Going northwest from Washington means crossing the grain, and there is no straight way to do it.
+  </p>
+
+  <div class="pull">
+    The most stretched place in the country reachable by car, Nantucket, is 646 km from Washington
+    and 10.5 hours away — a 1.62× penalty imposed almost entirely by a ferry timetable.
+  </div>
+
+  {{PLATE:stretch_true:4:The stretch field, undistorted}}
+  <figcaption>
+    The same numbers painted back onto the real map, which makes the structure easier to read than
+    the warped version does. From the Capitol (left): the Appalachian grain, the Chesapeake, upper
+    Michigan and northern Maine run high; the Great Basin and west Texas run low. From the centre
+    (right): a bullseye over Kansas, the Rocky Mountain crossings, and the detour around Lake
+    Michigan. Both maps peak near their own origin, where a fixed few minutes of town driving is a
+    large fraction of a short trip.
+  </figcaption>
+  </figure>
+
+  <h2>Stretch is circuity times slowness</h2>
+  <p>
+    A county gets pushed outward for exactly two reasons, and they multiply. Either the road bends
+    — it is longer than the straight line — or the road is slow. Written out,
+    <code>stretch = (road ÷ straight) × (100 ÷ km/h)</code>, so the two causes can be separated and
+    mapped independently.
+  </p>
+
+  {{PLATE:why:5:The two causes, separated}}
+  <figcaption>
+    Circuity (left) and slowness (right), both from the Capitol. They pick out different country.
+    Circuity peaks where water and ridges force detours: Delmarva, central Pennsylvania, upper
+    Michigan, and — visible as a faint plaid — the surveyed section grid of the western Plains.
+    Slowness is a different map altogether: it is the Northeast Corridor, New England, and the
+    Appalachian secondary roads, with the emptiest western states fastest of all.
+  </figcaption>
+  </figure>
+
+  <p>
+    Splitting the variance of log stretch between the two terms gives a clean answer that changes
+    with the origin. From the Capitol the split is <strong>51% circuity, 49% slowness</strong> — an
+    even contest. From the geographic centre it is <strong>68% circuity, 32% slowness</strong>,
+    because most trips out of Kansas begin on the Plains grid, where the roads are fast but refuse
+    to go diagonally. Driving from Lebanon to Dighton, Kansas means 221 km of straight line and
+    319 km of road: a detour factor of 1.44, which is essentially √2. That is not terrain. That is
+    the Public Land Survey System, drawn in 1785, still charging a toll.
+  </p>
+
+  <h2>The emptiest roads are the truest</h2>
+  <p>
+    The counties that barely move are all in the same kind of place. From the Capitol the ten least
+    stretched are in west Texas, Nevada and Wyoming — Van Horn, Sierra Blanca, Pecos, Battle
+    Mountain, Evanston — at a stretch of 1.03 to 1.04 and implied speeds of 107 to 109 km/h over
+    journeys of 2,500 to 3,400 km. Interstate 10 through the Trans-Pecos is posted at 80 mph.
+    You really can average 108 km/h from Washington D.C. to Van Horn, Texas, over more than a day
+    of driving, and on this map Van Horn therefore sits almost exactly where the atlas puts it.
+  </p>
+  <p>
+    This is the inversion of the Chinese result. There, the periphery is where the map tears: remote
+    means slow. In the United States, remote means <em>fast</em>. Nevada is the least distorted
+    state from both origins.
+  </p>
+
+  <h2>The distortion belongs to the origin, not the terrain</h2>
+  <p>
+    Running the same construction from two places makes something obvious that one map alone hides:
+    a state's stretch is not a property of that state. It is a property of the route.
+  </p>
+
+  <div class="scroll">
+    <table>
+      <caption>Median county stretch by state, from each origin.</caption>
+      <thead><tr>
+        <th>State</th><th class="num">from the Capitol</th><th class="num">from the centre</th>
+        <th>what changes</th>
+      </tr></thead>
+      <tbody>{{TABLE:flip}}</tbody>
+    </table>
+  </div>
+
+  <p>
+    Pennsylvania is the third most distorted state in the country seen from Washington and the
+    second least distorted seen from Kansas. Nothing about Pennsylvania changed. From Washington
+    you enter it across the ridges at short range, and the crossing is the whole trip. From Kansas
+    you arrive along I-70 or I-80 after 1,800 km of open highway, and the same ridges are a rounding
+    error. Arizona and New Mexico run the other way: unremarkable from Washington, badly stretched
+    from Kansas, because the straight line from the Plains to the Southwest runs into the Rockies
+    and the Colorado Plateau and the road has to go around.
+  </p>
+
+  <h2>Carrying the borders along</h2>
+  <p>
+    Moving 3,109 points is easy. Making the coastline and the state lines follow them is the part
+    that requires a choice, because between the county seats there is no measurement — and over the
+    Great Lakes, out past Cape Cod, and beyond the border there is no land either. Three
+    interpolators were fitted to the same displacement data:
+  </p>
+  <ul class="notes">
+    <li><span class="n">i</span><p><b>Radial stretch field.</b> Interpolate the log of the stretch
+      factor across the plane, then move every boundary vertex along its own bearing by that factor.
+      Guarantees the warp stays purely radial, which is what the concept actually claims.</p></li>
+    <li><span class="n">ii</span><p><b>Piecewise affine.</b> Delaunay-triangulate the county seats
+      and let each triangle carry its own affine map — the classic triangulation deformation.</p></li>
+    <li><span class="n">iii</span><p><b>Thin-plate spline.</b> A smooth radial-basis fit to the
+      displacement vectors, minimising bending energy; the topologically gentle option.</p></li>
+  </ul>
+  <p>
+    All three reproduce the 3,109 measured positions to within 0.000 m, which is the point: on the
+    data they are identical, and any visible disagreement is the extrapolation showing itself.
+  </p>
+
+  {{PLATE:methods:6:Where the three methods disagree}}
+  <figcaption>
+    Drawn thick to thin so all three stay visible where they coincide, which is nearly everywhere on
+    land. They separate over the Great Lakes, along the Canadian border and out past the coasts —
+    precisely where no county constrains them. The thin-plate spline wanders furthest, because
+    minimising bending energy is a weaker instruction than "stay radial" once the data runs out.
+  </figcaption>
+  </figure>
+
+  <h2>How it was built, and where it is soft</h2>
+  <p>
+    County seats came from Wikidata keyed on FIPS codes (3,049 of 3,109; the remaining 60, mostly
+    Virginia independent cities that are their own seat, use the Census internal point). Boundaries
+    are Census cartographic files at 1:5,000,000, densified to 10 km segments so that straight state
+    lines can bend. Routing is OSRM's public server on the OpenStreetMap network, one source against
+    99 destinations per request.
+  </p>
+  <p>
+    OSRM's default car profile is conservative, so the raw times were calibrated against Valhalla —
+    an independent engine on the same road data — over 224 routes sampled around ten anchors from
+    Boston to Bakersfield. The ratio came out at <strong>1.187 ± 0.076</strong>, flat across
+    distance bands (1.176 / 1.191 / 1.184 for 0–100, 100–200 and 200–300 km) and stable across
+    regions, so a single scalar correction is defensible. Every time on this page is a raw OSRM
+    duration divided by 1.187.
+  </p>
+
+  <div class="scroll">
+    <table>
+      <caption>
+        Held out against Valhalla on the four long routes its public server would compute — it
+        refuses anything over 1,500 km. Endpoints differ slightly (county seat vs. city centre).
+      </caption>
+      <thead><tr>
+        <th>From the Capitol to</th><th class="num">Valhalla</th>
+        <th class="num">this map</th><th class="num">difference</th>
+      </tr></thead>
+      <tbody>{{TABLE:validation}}</tbody>
+    </table>
+  </div>
+
+  <ul class="notes">
+    <li><span class="n">01</span><p><b>No traffic.</b> These are free-flow times. A rush-hour map
+      would tear the Northeast and coastal California open far wider than this one does; the
+      congestion visible here is only what is baked into the road geometry.</p></li>
+    <li><span class="n">02</span><p><b>Mildly conservative.</b> Valhalla itself runs a few percent
+      above commonly quoted no-traffic estimates, so calibrating to it inherits that. Distances,
+      by contrast, match to within 1%.</p></li>
+    <li><span class="n">03</span><p><b>Ratios are unstable near the origin.</b> A fixed few minutes
+      of town driving is enormous on a 20 km trip, which is why the District of Columbia scores its
+      own stretch of 3.4 and why every ranking here excludes counties within 150 km. The effect is
+      real — city driving genuinely is slow — but the ratio exaggerates it at short range.</p></li>
+    <li><span class="n">04</span><p><b>The map is not one-to-one.</b> 2.1% of Delaunay triangles
+      invert under the warp from the Capitol, 1.8% from the centre. Those are genuine order swaps:
+      places that are nearer in space but further in time than their neighbours, so the sheet folds
+      over itself. It is a property of the country, not an artefact.</p></li>
+    <li><span class="n">05</span><p><b>Ferries count as roads.</b> OSRM routes to Nantucket and
+      Martha's Vineyard over the ferry at ferry speed, which is why those two counties are stretched
+      so hard. San Juan County, Washington is handled the same way.</p></li>
+  </ul>
+
+  <h2>What is in the repository</h2>
+  <ul class="files">
+    <li><code>src/01_build_points.py</code> <span>— county seats, Wikidata joined to Census FIPS</span></li>
+    <li><code>src/02_fetch_times.py</code> <span>— 6,218 OSRM routes, batched 1×99</span></li>
+    <li><code>src/03_calibrate.py</code> <span>— OSRM vs. Valhalla over 224 sampled pairs</span></li>
+    <li><code>src/04_warp.py</code> <span>— displacement and the three boundary interpolators</span></li>
+    <li><code>src/05_plot.py</code> <span>— the six plates, rendered per theme</span></li>
+    <li><code>src/06_stats.py</code>, <code>src/07_verify.py</code> <span>— rankings, and the checks quoted above</span></li>
+    <li><code>data/county_warped.csv</code> <span>— every county: bearing, hours, road km, stretch, new position</span></li>
+    <li><code>src/10–13</code> <span>— the interactive build: 64 origins, 76,800 extra routes, WebGL payload</span></li>
+  </ul>
+
+</div>

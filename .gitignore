@@ -1,0 +1,19 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Source geodata — downloaded by the pipeline, not ours to redistribute.
+# Census cartographic boundaries (GENZ2023), TIGER primary roads, OpenFlights.
+data/*.zip
+data/cb_2023_us_*/
+data/gaz_counties/
+data/tl_primaryroads/
+data/airports.dat
+data/routes.dat
+
+# Derived, and rebuilt in minutes from what is committed.
+data/warped_geoms.pkl
+data/map_payload.bin
+data/map_payload.json
+data/sim_payload.bin
+data/sim_payload.json

@@ -1,0 +1,566 @@
+<title>Drive time, live — the United States deformed from any origin</title>
+<style>
+  :root {
+    --ground:#eaeeea; --panel:#fcfcfbee; --ink:#101512; --ink-2:#4b524d; --ink-3:#7d847e;
+    --rule:#cfd6cf; --accent:#2a78d6; --warm:#b4491a; --gl-dark:0;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:#0b0d0c; --panel:#161918ee; --ink:#eef1ee; --ink-2:#a9b0aa; --ink-3:#79807a;
+      --rule:#2b302c; --accent:#3987e5; --warm:#e07a4a; --gl-dark:1;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:#0b0d0c; --panel:#161918ee; --ink:#eef1ee; --ink-2:#a9b0aa; --ink-3:#79807a;
+    --rule:#2b302c; --accent:#3987e5; --warm:#e07a4a; --gl-dark:1;
+  }
+
+  body { background: var(--ground); color: var(--ink); font-family: var(--sans);
+         margin:0; overflow:hidden; -webkit-font-smoothing:antialiased; }
+  #stage { position:fixed; inset:0; }
+  #stage canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
+
+  .head { position:fixed; top:20px; left:20px; padding:14px 17px 15px;
+          pointer-events:none; max-width:min(41ch, 62vw); }
+  .head h1 { margin:0; font-size:clamp(1.05rem,2.1vw,1.42rem); font-weight:650;
+             letter-spacing:-.02em; line-height:1.15; text-wrap:balance; }
+  .head p { margin:.45rem 0 0; font-size:.82rem; line-height:1.5; color:var(--ink-2); }
+  .head .eyebrow { font-family:var(--mono); font-size:.66rem; text-transform:uppercase;
+                   letter-spacing:.16em; color:var(--ink-3); margin:0 0 .45rem; }
+
+  .panel { position:fixed; background:var(--panel); border:1px solid var(--rule);
+           backdrop-filter:blur(14px); border-radius:3px; }
+  #controls { bottom:20px; left:50%; transform:translateX(-50%); padding:12px 16px;
+              display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+              justify-content:center; max-width:min(940px, calc(100vw - 32px)); }
+  .grp { display:flex; align-items:center; gap:8px; }
+  .lbl { font-family:var(--mono); font-size:.64rem; text-transform:uppercase;
+         letter-spacing:.13em; color:var(--ink-3); white-space:nowrap; }
+
+  button, select {
+    font:inherit; font-size:.82rem; color:var(--ink); background:transparent;
+    border:1px solid var(--rule); border-radius:2px; padding:5px 10px; cursor:pointer;
+    transition: border-color .15s, background .15s;
+  }
+  button:hover, select:hover { border-color:var(--accent); }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline:2px solid var(--accent); outline-offset:2px; }
+  button[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
+  select { max-width:210px; }
+  .step { width:30px; text-align:center; padding:5px 0; font-family:var(--mono); }
+
+  input[type=range] { -webkit-appearance:none; appearance:none; width:170px; height:18px;
+                      background:transparent; cursor:pointer; }
+  input[type=range]::-webkit-slider-runnable-track { height:2px; background:var(--rule); }
+  input[type=range]::-moz-range-track { height:2px; background:var(--rule); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:13px; height:13px;
+      border-radius:50%; background:var(--accent); margin-top:-5.5px; }
+  input[type=range]::-moz-range-thumb { width:13px; height:13px; border:0; border-radius:50%;
+      background:var(--accent); }
+
+  #readout { position:fixed; top:20px; right:22px; padding:11px 14px; min-width:184px; }
+  #readout .who { font-size:.95rem; font-weight:600; letter-spacing:-.01em; }
+  #readout .val { font-family:var(--mono); font-size:1.5rem; font-weight:600;
+                  letter-spacing:-.03em; margin-top:.25rem; font-variant-numeric:tabular-nums; }
+  #readout .sub { font-size:.73rem; color:var(--ink-2); margin-top:.15rem; line-height:1.4; }
+
+  #legend { position:fixed; bottom:20px; left:20px; padding:10px 12px; }
+  #legend .bar { width:168px; height:7px; margin:5px 0 4px; }
+  #legend .ends { display:flex; justify-content:space-between; font-family:var(--mono);
+                  font-size:.64rem; color:var(--ink-3); font-variant-numeric:tabular-nums; }
+
+  #tip { position:fixed; pointer-events:none; padding:5px 8px; font-size:.76rem;
+         background:var(--panel); border:1px solid var(--rule); border-radius:2px;
+         opacity:0; transition:opacity .12s; white-space:nowrap; z-index:5; }
+  #tip b { font-weight:600; }
+  #tip span { color:var(--ink-2); font-family:var(--mono); }
+
+  #fallback { position:fixed; inset:0; display:none; place-content:center; text-align:center;
+              padding:2rem; }
+  @media (max-width: 760px) {
+    .head { max-width:none; left:10px; right:10px; top:10px; padding:10px 12px; }
+    .head p { display:none; }
+    /* stack under the header instead of colliding with the taller control bar */
+    #readout { top:76px; bottom:auto; right:10px; min-width:0; padding:8px 10px;
+               max-width:62vw; }
+    #readout .val { font-size:1.15rem; }
+    #legend { display:none; }
+    #controls { bottom:12px; gap:10px; padding:10px 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition-duration:.01ms !important; } }
+</style>
+
+<div id="stage">
+  <canvas id="gl"></canvas>
+  <canvas id="ov"></canvas>
+</div>
+
+<div class="head panel">
+  <p class="eyebrow">Live deformation · 64 origins · 76,800 measured drives</p>
+  <h1>The United States, deformed by how long it takes to drive there</h1>
+  <p>Every place keeps its true compass bearing from the origin. Its distance is replaced by
+     driving time, at one hour to a hundred kilometres. Pick a new origin and the country
+     reshapes around it.</p>
+</div>
+
+<div class="panel" id="readout">
+  <div class="who" id="ro-who">—</div>
+  <div class="val" id="ro-val">—</div>
+  <div class="sub" id="ro-sub">—</div>
+</div>
+
+<div class="panel" id="legend">
+  <div class="lbl">time ÷ distance</div>
+  <canvas class="bar" id="lgbar" width="336" height="14"></canvas>
+  <div class="ends"><span>1.0×</span><span>1.45×+</span></div>
+</div>
+
+<div class="panel" id="controls">
+  <div class="grp">
+    <span class="lbl">origin</span>
+    <button class="step" id="prev" aria-label="Previous origin">‹</button>
+    <select id="pick" aria-label="Choose origin"></select>
+    <button class="step" id="next" aria-label="Next origin">›</button>
+  </div>
+  <div class="grp">
+    <span class="lbl">map</span>
+    <input type="range" id="reveal" min="0" max="1000" value="1000" aria-label="Blend from true map to time map">
+    <span class="lbl">time</span>
+  </div>
+  <div class="grp">
+    <button id="tour" aria-pressed="false">Tour</button>
+    <button id="lines" aria-pressed="true">Counties</button>
+  </div>
+</div>
+
+<div id="tip"></div>
+<div id="fallback"><div>
+  <h1>This page needs WebGL2</h1>
+  <p>The map is computed on the GPU — 42,000 points re-projected every frame. Try a current
+     desktop browser with hardware acceleration enabled.</p>
+</div></div>
+
+<script id="payload" type="application/json">{{META}}</script>
+<script id="blob" type="text/plain">{{BLOB}}</script>
+<script>
+(() => {
+  "use strict";
+  const META = JSON.parse(document.getElementById("payload").textContent);
+  const raw = atob(document.getElementById("blob").textContent.trim());
+  const bytes = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+  const buf = (n) => {
+    const b = META.buffers[n];
+    return b.dtype === "uint16" ? new Uint16Array(bytes.buffer, b.offset, b.count)
+                                : new Uint32Array(bytes.buffer, b.offset, b.count);
+  };
+
+  const RAMP = ["#cde2fb","#b7d3f6","#9ec5f4","#86b6ef","#6da7ec","#5598e7","#3987e5",
+                "#2a78d6","#256abf","#1c5cab","#184f95","#104281","#0d366b"];
+  // 99% of the grid lies below 1.45x, so the ramp spends itself where the data is.
+  const LO = 1.0, HI = 1.45, R_EARTH = 6371.0088;
+  const O = META.origins, G = META.grid;
+  const grids = buf("grids");
+
+  // ---------- WebGL ----------
+  const glc = document.getElementById("gl"), ovc = document.getElementById("ov");
+  const gl = glc.getContext("webgl2", { antialias: true, alpha: false });
+  if (!gl) { document.getElementById("stage").style.display = "none";
+             document.getElementById("fallback").style.display = "grid";
+             document.querySelectorAll(".panel,.head").forEach(e => e.style.display = "none");
+             return; }
+  const ctx = ovc.getContext("2d");
+
+  const VS = `#version 300 es
+  precision highp float; precision highp usampler2DArray;
+  in vec2 aQ;
+  uniform vec2 uQLon, uQLat, uOA, uOB, uGridSize, uPixel;
+  uniform vec3 uGridInfo;          // lon0, lat0, cell
+  uniform vec4 uView;              // scale, -, offsetX, offsetY
+  uniform float uMix, uReveal, uForceTrue, uSScale;
+  uniform int uLayerA, uLayerB;
+  uniform usampler2DArray uGrids;
+  out float vS;
+  const float R = 6371.0088;
+
+  float samp(int layer, vec2 ll) {
+    vec2 f = (ll - uGridInfo.xy) / uGridInfo.z;
+    f = clamp(f, vec2(0.0), uGridSize - vec2(1.001));
+    ivec2 i0 = ivec2(floor(f)); vec2 fr = f - vec2(i0);
+    float v00 = float(texelFetch(uGrids, ivec3(i0, layer), 0).r);
+    float v10 = float(texelFetch(uGrids, ivec3(i0 + ivec2(1,0), layer), 0).r);
+    float v01 = float(texelFetch(uGrids, ivec3(i0 + ivec2(0,1), layer), 0).r);
+    float v11 = float(texelFetch(uGrids, ivec3(i0 + ivec2(1,1), layer), 0).r);
+    return mix(mix(v00,v10,fr.x), mix(v01,v11,fr.x), fr.y) / uSScale;
+  }
+
+  vec2 place(vec2 ll, vec2 o, int layer, out float s) {
+    float p1 = radians(o.y), p2 = radians(ll.y);
+    float dl = radians(ll.x - o.x), dp = p2 - p1;
+    float a = sin(dp * 0.5), b = sin(dl * 0.5);
+    float h = a*a + cos(p1) * cos(p2) * b*b;
+    float r = 2.0 * R * asin(sqrt(clamp(h, 0.0, 1.0)));
+    float az = atan(sin(dl) * cos(p2), cos(p1) * sin(p2) - sin(p1) * cos(p2) * cos(dl));
+    s = mix(1.0, samp(layer, ll), uReveal * (1.0 - uForceTrue));
+    return vec2(r * s * sin(az), r * s * cos(az));
+  }
+
+  void main() {
+    vec2 ll = vec2(uQLon.x + aQ.x / 65535.0 * uQLon.y,
+                   uQLat.x + aQ.y / 65535.0 * uQLat.y);
+    float sa, sb;
+    vec2 pa = place(ll, uOA, uLayerA, sa);
+    vec2 pb = place(ll, uOB, uLayerB, sb);
+    vec2 p = mix(pa, pb, uMix);
+    vS = mix(sa, sb, uMix);
+    gl_Position = vec4(p * uView.xy + uView.zw + uPixel, 0.0, 1.0);
+  }`;
+
+  const FS = `#version 300 es
+  precision highp float;
+  in float vS; out vec4 o;
+  uniform vec3 uRamp[13];
+  uniform vec4 uFlat;              // rgb + use-flat flag
+  uniform float uAlpha;
+  void main() {
+    if (uFlat.a > 0.5) { o = vec4(uFlat.rgb, uAlpha); return; }
+    float t = clamp((vS - ${LO.toFixed(1)}) / ${(HI - LO).toFixed(1)}, 0.0, 0.9999) * 12.0;
+    int i = int(floor(t));
+    o = vec4(mix(uRamp[i], uRamp[i + 1], fract(t)), uAlpha);
+  }`;
+
+  function shader(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, shader(gl.VERTEX_SHADER, VS));
+  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FS));
+  gl.bindAttribLocation(prog, 0, "aQ");
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  const U = {};
+  for (const n of ["uQLon","uQLat","uOA","uOB","uGridSize","uGridInfo","uView","uMix","uReveal",
+                   "uForceTrue","uSScale","uLayerA","uLayerB","uGrids","uFlat","uAlpha","uPixel"])
+    U[n] = gl.getUniformLocation(prog, n);
+  const uRamp = gl.getUniformLocation(prog, "uRamp[0]");
+
+  function vao(data) {
+    const a = gl.createVertexArray(); gl.bindVertexArray(a);
+    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.UNSIGNED_SHORT, false, 0, 0);
+    gl.bindVertexArray(null);
+    return { vao: a, n: data.length / 2 };
+  }
+  const mesh = vao(buf("mesh_xy"));
+  const meshIdx = buf("mesh_idx");
+  gl.bindVertexArray(mesh.vao);
+  const ib = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, meshIdx, gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  const L = { county: vao(buf("line_county")), state: vao(buf("line_state")),
+              nation: vao(buf("line_nation")) };
+
+  const tex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R16UI, G.nlon, G.nlat, O.length);
+  // A grid row is nlon*2 bytes and nlon is odd, so the default 4-byte unpack
+  // alignment makes GL expect padded rows and reject the upload outright.
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, G.nlon, G.nlat, O.length,
+                   gl.RED_INTEGER, gl.UNSIGNED_SHORT, grids);
+  const upErr = gl.getError();
+  if (upErr) console.error("grid texture upload failed, GL error", upErr);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.uniform1i(U.uGrids, 0);
+  gl.uniform2f(U.uQLon, META.qlon[0], META.qlon[1]);
+  gl.uniform2f(U.uQLat, META.qlat[0], META.qlat[1]);
+  gl.uniform3f(U.uGridInfo, G.lon0, G.lat0, G.d);
+  gl.uniform2f(U.uGridSize, G.nlon, G.nlat);
+  gl.uniform1f(U.uSScale, META.stretchScale);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  // ---------- theme ----------
+  const hex = (h) => [1,3,5].map(i => parseInt(h.slice(i, i+2), 16) / 255);
+  let TH = {};
+  function readTheme() {
+    const cs = getComputedStyle(document.documentElement);
+    const dark = parseFloat(cs.getPropertyValue("--gl-dark")) > 0.5;
+    const ramp = dark ? [...RAMP].reverse() : RAMP;
+    TH = { dark, ramp,
+           ground: cs.getPropertyValue("--ground").trim(),
+           ink: cs.getPropertyValue("--ink").trim(),
+           ink3: cs.getPropertyValue("--ink-3").trim(),
+           warm: cs.getPropertyValue("--warm").trim() };
+    gl.useProgram(prog);
+    gl.uniform3fv(uRamp, new Float32Array(ramp.flatMap(hex)));
+    const g = hex(TH.ground);
+    gl.clearColor(g[0], g[1], g[2], 1);
+    drawLegend();
+  }
+  function drawLegend() {
+    const c = document.getElementById("lgbar"), x = c.getContext("2d");
+    const grad = x.createLinearGradient(0, 0, c.width, 0);
+    TH.ramp.forEach((col, i) => grad.addColorStop(i / (TH.ramp.length - 1), col));
+    x.fillStyle = grad; x.fillRect(0, 0, c.width, c.height);
+  }
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", readTheme);
+  new MutationObserver(readTheme).observe(document.documentElement, {
+    attributes: true, attributeFilter: ["data-theme"] });
+
+  // ---------- state ----------
+  const ready = O.map((o, i) => o.ready ? i : -1).filter(i => i >= 0);
+  let cur = ready.indexOf(O.findIndex(o => o.label.startsWith("Washington")));
+  if (cur < 0) cur = 0;
+  let from = ready[cur], to = ready[cur], mixT = 1, morphStart = 0, MORPH = 900;
+  let reveal = 1, revealTarget = 1, showCounties = true, touring = false, tourAt = 0;
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) MORPH = 1;
+
+  const sel = document.getElementById("pick");
+  ready.forEach((i, k) => {
+    const op = document.createElement("option");
+    op.value = k; op.textContent = O[i].label; sel.appendChild(op);
+  });
+  sel.value = cur;
+
+  function go(k) {
+    k = ((k % ready.length) + ready.length) % ready.length;
+    if (ready[k] === to) return;
+    from = to; to = ready[k]; cur = k; mixT = 0; morphStart = performance.now();
+    sel.value = k;
+  }
+  document.getElementById("prev").onclick = () => { touring = false; syncTour(); go(cur - 1); };
+  document.getElementById("next").onclick = () => { touring = false; syncTour(); go(cur + 1); };
+  sel.onchange = (e) => { touring = false; syncTour(); go(+e.target.value); };
+  document.getElementById("reveal").oninput = (e) => { revealTarget = +e.target.value / 1000; };
+  const tourBtn = document.getElementById("tour"), linesBtn = document.getElementById("lines");
+  function syncTour() { tourBtn.setAttribute("aria-pressed", String(touring)); }
+  tourBtn.onclick = () => { touring = !touring; syncTour(); tourAt = performance.now(); };
+  linesBtn.onclick = () => {
+    showCounties = !showCounties; linesBtn.setAttribute("aria-pressed", String(showCounties));
+  };
+  addEventListener("keydown", (e) => {
+    if (e.key === "ArrowRight") { touring = false; syncTour(); go(cur + 1); }
+    if (e.key === "ArrowLeft") { touring = false; syncTour(); go(cur - 1); }
+  });
+
+  // ---------- CPU-side copy of the shader's placement, for the origin dots ----------
+  function stretchAt(layer, lon, lat) {
+    let fx = (lon - G.lon0) / G.d, fy = (lat - G.lat0) / G.d;
+    fx = Math.min(Math.max(fx, 0), G.nlon - 1.001);
+    fy = Math.min(Math.max(fy, 0), G.nlat - 1.001);
+    const i0 = Math.floor(fx), j0 = Math.floor(fy), tx = fx - i0, ty = fy - j0;
+    const at = (i, j) => grids[layer * G.nlat * G.nlon + j * G.nlon + i];
+    const a = at(i0, j0) + (at(i0 + 1, j0) - at(i0, j0)) * tx;
+    const b = at(i0, j0 + 1) + (at(i0 + 1, j0 + 1) - at(i0, j0 + 1)) * tx;
+    return (a + (b - a) * ty) / META.stretchScale;
+  }
+  function place(lon, lat, oi, rev) {
+    const o = O[oi], rad = Math.PI / 180;
+    const p1 = o.lat * rad, p2 = lat * rad, dl = (lon - o.lon) * rad, dp = p2 - p1;
+    const h = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+    const r = 2 * R_EARTH * Math.asin(Math.sqrt(Math.min(1, h)));
+    const az = Math.atan2(Math.sin(dl) * Math.cos(p2),
+                          Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl));
+    const s = 1 + (stretchAt(oi, lon, lat) - 1) * rev;
+    return { x: r * s * Math.sin(az), y: r * s * Math.cos(az), hours: (r * s) / META.kmPerHour };
+  }
+
+  // ---------- view ----------
+  let W = 0, H = 0, DPR = 1, view = { s: 1, ox: 0, oy: 0 };
+  function resize() {
+    DPR = Math.min(devicePixelRatio || 1, 2);
+    W = innerWidth; H = innerHeight;
+    for (const c of [glc, ovc]) { c.width = Math.round(W * DPR); c.height = Math.round(H * DPR); }
+    gl.viewport(0, 0, glc.width, glc.height);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  addEventListener("resize", resize);
+
+  const lerp4 = (a, b, t) => a.map((v, i) => v + (b[i] - v) * t);
+  function currentExtent() {
+    const ea = lerp4(O[from].extTrue, O[from].extTime, reveal);
+    const eb = lerp4(O[to].extTrue, O[to].extTime, reveal);
+    return lerp4(ea, eb, mixT);
+  }
+  function updateView() {
+    const e = currentExtent();
+    const pad = Math.min(W, H) < 700 ? 26 : 132;
+    const s = Math.min((W - pad * 2) / Math.max(e[2] - e[0], 1),
+                       (H - pad * 2) / Math.max(e[3] - e[1], 1));
+    const cx = (e[0] + e[2]) / 2, cy = (e[1] + e[3]) / 2;
+    view = { s, ox: W / 2 - cx * s, oy: H / 2 + cy * s };
+  }
+  const toScreen = (p) => ({ x: p.x * view.s + view.ox, y: view.oy - p.y * view.s });
+
+  // ---------- draw ----------
+  function setView() {
+    gl.uniform4f(U.uView, (2 * view.s) / W, (2 * view.s) / H,
+                 (2 * view.ox) / W - 1, 1 - (2 * view.oy) / H);
+  }
+  function flat(col, alpha) {
+    const c = hex(col);
+    gl.uniform4f(U.uFlat, c[0], c[1], c[2], 1);
+    gl.uniform1f(U.uAlpha, alpha);
+  }
+  function drawLines(layer, offsets) {
+    gl.bindVertexArray(layer.vao);
+    for (const [dx, dy] of offsets) {
+      gl.uniform2f(U.uPixel, (dx * 2) / W, (dy * 2) / H);
+      gl.drawArrays(gl.LINES, 0, layer.n);
+    }
+    gl.uniform2f(U.uPixel, 0, 0);
+  }
+
+  function render() {
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(prog);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
+    gl.uniform2f(U.uOA, O[from].lon, O[from].lat);
+    gl.uniform2f(U.uOB, O[to].lon, O[to].lat);
+    gl.uniform1i(U.uLayerA, from);
+    gl.uniform1i(U.uLayerB, to);
+    gl.uniform1f(U.uMix, mixT);
+    gl.uniform1f(U.uReveal, reveal);
+    gl.uniform1f(U.uForceTrue, 0);
+    gl.uniform2f(U.uPixel, 0, 0);
+    setView();
+
+    // filled mesh, coloured by how far time has pushed each point
+    gl.uniform4f(U.uFlat, 0, 0, 0, 0);
+    gl.uniform1f(U.uAlpha, 1);
+    gl.bindVertexArray(mesh.vao);
+    gl.drawElements(gl.TRIANGLES, meshIdx.length, gl.UNSIGNED_SHORT, 0);
+
+    if (showCounties) { flat(TH.ground, TH.dark ? 0.30 : 0.42); drawLines(L.county, [[0, 0]]); }
+    flat(TH.ground, TH.dark ? 0.72 : 0.85);
+    drawLines(L.state, [[0, 0]]);
+    flat(TH.ink, 0.92);
+    drawLines(L.nation, [[0, 0], [0.7, 0], [0, 0.7]]);
+
+    // the country where it actually is, for reference
+    gl.uniform1f(U.uForceTrue, 1);
+    flat(TH.ink, 0.5);
+    drawLines(L.nation, [[0, 0]]);
+    gl.uniform1f(U.uForceTrue, 0);
+    gl.bindVertexArray(null);
+  }
+
+  // ---------- overlay: rings, origin dots ----------
+  let hovered = -1;
+  const dots = [];
+  function overlay() {
+    ctx.clearRect(0, 0, W, H);
+    const o0 = toScreen({ x: 0, y: 0 });
+
+    ctx.strokeStyle = TH.ink3; ctx.globalAlpha = 0.22; ctx.lineWidth = 1;
+    ctx.font = "500 10px " + getComputedStyle(document.body).fontFamily;
+    const maxR = Math.hypot(Math.max(o0.x, W - o0.x), Math.max(o0.y, H - o0.y));
+    for (let hrs = 5; hrs <= 60; hrs += 5) {
+      const rr = hrs * META.kmPerHour * view.s;
+      if (rr > maxR) break;
+      ctx.beginPath(); ctx.arc(o0.x, o0.y, rr, 0, Math.PI * 2); ctx.stroke();
+      if (hrs % 10 === 0 && o0.y + rr < H - 8) {
+        ctx.globalAlpha = 0.55; ctx.fillStyle = TH.ink3; ctx.textAlign = "center";
+        ctx.fillText(hrs + " h", o0.x, o0.y + rr - 3);
+        ctx.globalAlpha = 0.22;
+      }
+    }
+
+    dots.length = 0;
+    for (const i of ready) {
+      const pa = place(O[i].lon, O[i].lat, from, reveal);
+      const pb = place(O[i].lon, O[i].lat, to, reveal);
+      const p = toScreen({ x: pa.x + (pb.x - pa.x) * mixT, y: pa.y + (pb.y - pa.y) * mixT });
+      dots.push({ i, x: p.x, y: p.y, hours: pa.hours + (pb.hours - pa.hours) * mixT });
+    }
+    ctx.globalAlpha = 1;
+    for (const d of dots) {
+      const isCur = d.i === to, isHot = d.i === hovered;
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, isCur ? 6 : isHot ? 5 : 3, 0, Math.PI * 2);
+      ctx.fillStyle = isCur ? TH.warm : TH.ink;
+      ctx.globalAlpha = isCur ? 1 : isHot ? 0.95 : 0.62;
+      ctx.fill();
+      if (isCur) {
+        ctx.globalAlpha = 0.9; ctx.strokeStyle = TH.ground; ctx.lineWidth = 1.6; ctx.stroke();
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  const tip = document.getElementById("tip");
+  ovc.addEventListener("pointermove", (e) => {
+    let best = -1, bd = 15 * 15;
+    for (const d of dots) {
+      const dd = (d.x - e.clientX) ** 2 + (d.y - e.clientY) ** 2;
+      if (dd < bd) { bd = dd; best = d.i; }
+    }
+    hovered = best;
+    ovc.style.cursor = best >= 0 ? "pointer" : "default";
+    if (best >= 0) {
+      const d = dots.find(x => x.i === best);
+      tip.innerHTML = `<b>${O[best].label}</b>` +
+        (best === to ? " <span>· origin</span>" : ` <span>${d.hours.toFixed(1)} h</span>`);
+      tip.style.opacity = 1;
+      tip.style.left = Math.min(e.clientX + 13, W - tip.offsetWidth - 8) + "px";
+      tip.style.top = (e.clientY + 15) + "px";
+    } else tip.style.opacity = 0;
+  });
+  ovc.addEventListener("pointerleave", () => { hovered = -1; tip.style.opacity = 0; });
+  ovc.addEventListener("click", () => {
+    if (hovered >= 0) { touring = false; syncTour(); go(ready.indexOf(hovered)); }
+  });
+
+  // ---------- readout ----------
+  const roWho = document.getElementById("ro-who"), roVal = document.getElementById("ro-val"),
+        roSub = document.getElementById("ro-sub");
+  function updateReadout() {
+    const o = O[to], st = o.stats;
+    roWho.textContent = o.label;
+    roVal.textContent = st.medianH.toFixed(1) + " h";
+    roSub.innerHTML = `median drive to a county seat<br>farthest ` +
+      `<b>${st.maxH.toFixed(1)} h</b> — ${st.farthest} · footprint ` +
+      `${(1 + (st.area - 1) * reveal).toFixed(2)}×`;
+  }
+
+  // ---------- loop ----------
+  const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+  let lastTo = -1, lastReveal = -1;
+  function frame(now) {
+    if (mixT < 1) {
+      mixT = Math.min(1, (now - morphStart) / MORPH);
+      if (mixT >= 1) from = to;
+    }
+    reveal += (revealTarget - reveal) * (reduce ? 1 : 0.16);
+    if (Math.abs(reveal - revealTarget) < 0.0015) reveal = revealTarget;
+    if (touring && now - tourAt > 2600) { tourAt = now; go(cur + 1); }
+
+    const m = mixT < 1 ? ease(mixT) : 1;
+    const saved = mixT; mixT = m;
+    updateView(); render(); overlay();
+    mixT = saved;
+
+    if (to !== lastTo || Math.abs(reveal - lastReveal) > 0.004) {
+      updateReadout(); lastTo = to; lastReveal = reveal;
+    }
+    requestAnimationFrame(frame);
+  }
+
+  readTheme(); resize(); updateReadout();
+  document.getElementById("reveal").value = 1000;
+  revealTarget = 1; reveal = reduce ? 1 : 0;
+  requestAnimationFrame(frame);
+})();
+</script>
