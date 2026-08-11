@@ -228,9 +228,14 @@ fetch("timemap.bin.gz").then(async (res) => {
     if (total) fill.style.width = Math.round((got / total) * 100) + "%";
   }
   fill.style.width = "100%";
-  // count progress on the wire, then inflate — the host may or may not compress for us
-  const gz = new Blob(chunks).stream().pipeThrough(new DecompressionStream("gzip"));
-  start(new Uint8Array(await new Response(gz).arrayBuffer()));
+  // Count progress on the wire, then inflate if it still needs it. Some hosts serve a .gz
+  // with Content-Encoding: gzip, in which case the browser has already unwrapped it and
+  // these bytes are the payload — so sniff the gzip magic rather than assume either way.
+  const blob = new Blob(chunks);
+  const head = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
+  const body = head[0] === 0x1f && head[1] === 0x8b
+    ? blob.stream().pipeThrough(new DecompressionStream("gzip")) : blob.stream();
+  start(new Uint8Array(await new Response(body).arrayBuffer()));
 }).catch((e) => {
   bootmsg.textContent = "could not load timemap.bin.gz — " + e.message;
   bootmsg.style.color = "var(--hot)";
