@@ -262,7 +262,7 @@ function start(bytes) {
   const ctx = ovc.getContext("2d");
 
   const VS = `#version 300 es
-  precision highp float; precision highp usampler2DArray;
+  precision highp float; precision highp sampler2DArray;
   in vec2 aQ;
   // (great-circle km, sin bearing, cos bearing) from each origin, computed once per origin
   // by the transform-feedback pass below. 0 is this vertex; 1 and 2 are the two neighbours
@@ -272,29 +272,28 @@ function start(bytes) {
   uniform vec3 uGridInfo, uEye;
   uniform vec4 uFlat;
   uniform mat4 uVP;
-  uniform float uMix, uReveal, uForceTrue, uSScale, uExag, uRelief, uHeight, uFold;
+  uniform float uMix, uReveal, uForceTrue, uExag, uRelief, uHeight, uFold;
   uniform float uSpanPos, uSpanNeg, uDiverge;
   uniform int uLayerA, uLayerB;
-  uniform usampler2DArray uGrids;
+  uniform sampler2DArray uGrids;
   out float vT; out float vShade;
   const float R = 6371.0088;
   // low from the north-west. its height sets how bright flat ground comes out, which the
   // fragment's ambient term is tuned against — both shading paths must use this one vector
   const vec3 SUN = vec3(-0.55, 0.62, 0.56);
 
+  // One hardware-filtered fetch, not four fetches and six mixes done by hand. The grid ships
+  // as R16F so the sampler can interpolate it; as R16UI it could not be filtered at all.
+  // An origin's two modes are stacked in one layer (253 origins still fit the 256 array
+  // layers WebGL2 guarantees) and the clamp below keeps the filter kernel inside its own
+  // half — reach the seam and it would blend Drive into Fly.
   float raw(int layer, vec2 ll) {
     vec2 f = (ll - uGridInfo.xy) / uGridInfo.z;
     f = clamp(f, vec2(0.0), uGridSize - vec2(1.001));
-    ivec2 i0 = ivec2(floor(f)); vec2 fr = f - vec2(i0);
-    // an origin's two modes are stacked in one layer, so 253 origins still fit the 256
-    // array layers WebGL2 guarantees
-    i0.y += (layer & 1) * int(uGridSize.y);
-    int L = layer >> 1;
-    float a = float(texelFetch(uGrids, ivec3(i0, L), 0).r);
-    float b = float(texelFetch(uGrids, ivec3(i0 + ivec2(1,0), L), 0).r);
-    float c = float(texelFetch(uGrids, ivec3(i0 + ivec2(0,1), L), 0).r);
-    float d = float(texelFetch(uGrids, ivec3(i0 + ivec2(1,1), L), 0).r);
-    return mix(mix(a,b,fr.x), mix(c,d,fr.x), fr.y) / uSScale;
+    f.y += float(layer & 1) * uGridSize.y;
+    return texture(uGrids, vec3((f.x + 0.5) / uGridSize.x,
+                                (f.y + 0.5) / (uGridSize.y * 2.0),
+                                float(layer >> 1))).r;
   }
   // pow() is a transcendental run on every vertex of every layer; at the default exaggeration
   // it is raising to the first power. The branch is on a uniform, so it costs nothing.
@@ -431,7 +430,7 @@ function start(bytes) {
   gl.useProgram(prog);
   const U = {};
   for (const n of ["uQLon","uQLat","uGridSize","uGridInfo","uVP","uEye","uMix","uReveal",
-                   "uForceTrue","uSScale","uExag","uRelief","uHeight","uFold",
+                   "uForceTrue","uExag","uRelief","uHeight","uFold",
                    "uLayerA","uLayerB","uGrids","uFlat",
                    "uAlpha","uPixel","uSpanPos","uSpanNeg","uDiverge"])
     U[n] = gl.getUniformLocation(prog, n);
@@ -554,19 +553,24 @@ function start(bytes) {
   }
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
-  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R16UI, G.nlon, G.nlat * 2, NM);
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);   // rows are nlon*2 bytes and nlon is odd
-  gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, G.nlon, G.nlat * 2, NM,
-                   gl.RED_INTEGER, gl.UNSIGNED_SHORT, grids);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.R16F, G.nlon, G.nlat * 2, NM);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);   // rows are nlon*4 bytes here, but odd widths bite
+  {                                         // uint16 counts -> real stretch, once, at boot
+    const f = new Float32Array(grids.length);
+    for (let i = 0; i < grids.length; i++) f[i] = grids[i] / META.stretchScale;
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, 0, G.nlon, G.nlat * 2, NM,
+                     gl.RED, gl.FLOAT, f);
+  }
   if (gl.getError()) { bootmsg.textContent = "texture upload failed"; return; }
-  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.uniform1i(U.uGrids, 0);
   gl.uniform2f(U.uQLon, META.qlon[0], META.qlon[1]);
   gl.uniform2f(U.uQLat, META.qlat[0], META.qlat[1]);
   gl.uniform3f(U.uGridInfo, G.lon0, G.lat0, G.d);
   gl.uniform2f(U.uGridSize, G.nlon, G.nlat);
-  gl.uniform1f(U.uSScale, META.stretchScale);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
   gl.enable(gl.DEPTH_TEST);
@@ -624,6 +628,15 @@ function start(bytes) {
       B.m ? "closer ← 1.0× → further" : "further in time than in space";
     ends[0].textContent = B.m ? lo.toFixed(2) + "×" : "1.0×";
     ends[1].textContent = hi.toFixed(2) + "×";
+  }
+
+  // Drive and Fly use different ramps, so switching mode used to repaint the whole sheet in
+  // one frame while its shape took a second to follow. Cross-fade the stops instead.
+  const rampBuf = new Float32Array(39);
+  function blendRamp(m) {
+    const a = rampFor(A.m, palI).flatMap(rgb01), b = rampFor(B.m, palI).flatMap(rgb01);
+    for (let i = 0; i < 39; i++) rampBuf[i] = a[i] + (b[i] - a[i]) * m;
+    gl.uniform3fv(uRamp, rampBuf);
   }
 
   /* ---------------- controls ---------------- */
@@ -877,7 +890,10 @@ function start(bytes) {
     // the tallest relief the sheet can have, as a share of its own width — so a 2,000 km
     // fly map and a 9,000 km drive map stand up by the same amount. Fly uses both arms,
     // so each gets half, or its craters alone would dwarf the country.
-    heightKm = height * 0.27 * fitSpan / (B.m ? 2 : 1);
+    // Fly halves the amplitude because it uses both arms. Across a mode change that factor
+    // has to travel with the morph, or the sheet's height jumps while its shape glides.
+    const hDiv = (A.m ? 2 : 1) + ((B.m ? 2 : 1) - (A.m ? 2 : 1)) * m;
+    heightKm = height * 0.27 * fitSpan / hDiv;
     ghostFit = Math.min(1, (x1 - x0) / (tsA + (tsB - tsA) * m));
   }
 
@@ -973,9 +989,11 @@ function start(bytes) {
     // flat, the sheet has no depth to sort by, so fall back to ordering the fold by hand
     gl.uniform1f(U.uFold, heightKm > 1 ? 0 : 0.03);
     // exaggeration multiplies log-stretch, so the ramp has to stretch with it
-    gl.uniform1f(U.uSpanPos, SPAN[B.m][0] * exag);
-    gl.uniform1f(U.uSpanNeg, SPAN[B.m][1] * exag);
-    gl.uniform1f(U.uDiverge, B.m ? 1 : 0);
+    // the colour spans also set the terrain height, so they interpolate for the same reason
+    gl.uniform1f(U.uSpanPos, (SPAN[A.m][0] + (SPAN[B.m][0] - SPAN[A.m][0]) * m) * exag);
+    gl.uniform1f(U.uSpanNeg, (SPAN[A.m][1] + (SPAN[B.m][1] - SPAN[A.m][1]) * m) * exag);
+    gl.uniform1f(U.uDiverge, (m < 0.5 ? A.m : B.m) ? 1 : 0);
+    if (A.m !== B.m && m < 1) blendRamp(m);
     gl.uniform2f(U.uPixel, 0, 0);
     gl.uniformMatrix4fv(U.uVP, false, VP);
     gl.uniform3f(U.uEye, eye[0], eye[1], eye[2]);
