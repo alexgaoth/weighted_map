@@ -1,4 +1,4 @@
-# The United States, redrawn by driving time
+# The United States redrawn by driving time
 
 A US counterpart to the Amap/Gaode "China by driving time" project. Every county seat in the
 contiguous 48 states keeps its true compass bearing from a fixed origin, but its distance is
