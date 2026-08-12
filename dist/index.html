@@ -198,6 +198,12 @@ const R_EARTH = 6371.0088, KMH = META.kmPerHour;
 // log-symmetric colour spans, set from the measured spread of each field
 const SPAN = [[0.4259, 0.05], [0.4044, 1.4288]];   // per mode: [slow arm, fast arm], in log units
 
+// The play button walks this route rather than all 253 in file order — a set of origins
+// that actually look different from one another, east coast to west.
+const TOUR = ["Washington D.C.", "Fort Myers, FL", "Chicago, IL", "Milwaukee, WI",
+              "Denver, CO", "San Francisco, CA", "Los Angeles, CA", "Bend, OR",
+              "Eugene, OR", "Seattle, WA"];
+
 const PALETTES = [
   { name: "cobalt",
     fast: ["#383835","#5c2b26","#8f3129","#c14235","#e0685a","#f29d8f","#ffd6cc"],
@@ -583,7 +589,15 @@ function start(bytes) {
     applyPalette(); };
   function syncTour() { tourBtn.classList.toggle("on", touring);
     tourBtn.setAttribute("aria-pressed", touring); tourBtn.textContent = touring ? "❚❚" : "▷"; }
-  tourBtn.onclick = () => { touring = !touring; syncTour(); tourT0 = performance.now(); };
+  const tourStops = TOUR.map(l => O.findIndex(o => o.label === l)).filter(i => i >= 0);
+  let tourAt = 0;
+  tourBtn.onclick = () => {
+    touring = !touring; syncTour();
+    // pick up from wherever the route already is, and move on the next frame rather than
+    // sitting still for two and a half seconds first
+    tourAt = tourStops.indexOf(B.o);
+    tourT0 = 0;
+  };
   addEventListener("keydown", (e) => {
     if (document.activeElement === q) return;
     if (e.key === "ArrowRight") goto((B.o + 1) % NM, B.m);
@@ -964,8 +978,6 @@ function start(bytes) {
   const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
   const glide = (v, to, k, snap) => Math.abs(to - v) < snap ? to : v + (to - v) * (reduce ? 1 : k);
   let m = 1, warm = true;
-  let pYaw = NaN, pPitch = 0, pZoom = 0, pPanX = 0, pPanY = 0, pW = 0, pH = 0,
-      pHov = -2, pRoads = null, pRelief = null, pPal = -1;
   function frame(now) {
     // measuring the sheet costs a few thousand warps, so only redo it when it moved —
     // orbiting the camera does not move it
@@ -978,17 +990,17 @@ function start(bytes) {
     if (Math.abs(exag - shownExag) > 0.01) { shownExag = exag; applyPalette(); }
     if (yaw !== yawTo) yaw = glide(yaw, yawTo, 0.1, 0.0015);
     if (pitch !== pitchTo) pitch = glide(pitch, pitchTo, 0.1, 0.0015);
-    if (touring && now - tourT0 > 2400) { tourT0 = now; goto((B.o + 1) % NM, B.m, false); }
-    // Nothing moved? Draw nothing. This scene is heavy enough that rendering it 60 times a
-    // second while it sits still leaves no headroom for the frame you actually care about.
-    if (shifted || yaw !== pYaw || pitch !== pPitch || zoom !== pZoom || panX !== pPanX
-        || panY !== pPanY || W !== pW || H !== pH || hovered !== pHov || roads !== pRoads
-        || relief !== pRelief || palI !== pPal) {
-      pYaw = yaw; pPitch = pitch; pZoom = zoom; pPanX = panX; pPanY = panY;
-      pW = W; pH = H; pHov = hovered; pRoads = roads; pRelief = relief; pPal = palI;
-      if (shifted) measure(m);
-      camera(); render(m); overlay(m);
+    if (touring && tourStops.length && now - tourT0 > 2400) {
+      tourT0 = now;
+      tourAt = (tourAt + 1) % tourStops.length;
+      goto(tourStops[tourAt], B.m, false);
     }
+    // Draw every frame. Skipping the paint when nothing moved looks like free money and is
+    // not: a page that paints nothing stops being served frames at all, rAF goes quiet, and
+    // every timed thing — the opening dissolve, the tour, any easing — freezes where it is.
+    // Measured at 0 rAF callbacks across 5 s of idle. Make frames cheaper, not rarer.
+    if (shifted) measure(m);
+    camera(); render(m); overlay(m);
     requestAnimationFrame(frame);
   }
 
