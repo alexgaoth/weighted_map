@@ -98,11 +98,11 @@ Headless screenshots race the page, and every earlier "bug" found this way was t
   `--virtual-time-budget` fires long before the payload has downloaded.
 - Vary the query string between runs. Chrome caches `index.html` per URL, so a rebuilt page keeps
   serving the old one.
-- Give `--virtual-time-budget` at least 90000. The payload is 4.7 MB and inflates before the first
-  frame; at 40000 the capture is of the loading bar.
-- Use `--headless=new`, and check `pgrep -c chrome` when captures start coming back as the loading
-  bar. Old `--headless` leaves processes behind; forty of them starve SwiftShader and every
-  screenshot silently becomes a picture of the progress bar.
+- Captures that come back as the loading bar have three causes, in this order: a
+  `--virtual-time-budget` under 90000 (the payload is 4.7 MB and inflates before the first frame);
+  old `--headless` leaving processes behind, so check `pgrep -c chrome` and kill with
+  `pgrep -x chrome | xargs -r kill` — a bare `pkill -f chrome` matches its own shell and kills it;
+  and the `python3 -m http.server` having quietly died.
 - `--dump-dom` alongside `--screenshot` is the cheap way to tell a page bug from a paint artefact.
   A control whose class the DOM says is right but whose pixels say otherwise is a stale
   `backdrop-filter` layer, not a bug — this cost a chase twice.
@@ -110,8 +110,18 @@ Headless screenshots race the page, and every earlier "bug" found this way was t
   **not** wait N `requestAnimationFrame`s first: a frame of this scene under SwiftShader can eat
   the whole virtual-time budget, and the callback simply never arrives.
 - `?tilt=`/`?spin=` (degrees) pin the camera; `tilt=90` is the old flat top-down view.
-- Driving a real browser is ground truth, but **an automated tab that never gets focus has its
-  `requestAnimationFrame` throttled to nearly nothing**, so the map creeps instead of animating
-  and looks broken. Click the page first, then judge. This cost a wrong diagnosis and a revert.
+- Driving a real browser is ground truth for *looks*, but **the extension's tab reports
+  `document.visibilityState === "hidden"`**, so `requestAnimationFrame` is throttled to roughly
+  1 Hz. Clicking the page makes it animate but does not clear the flag. A map that creeps instead
+  of animating is that, not a bug — it already cost one wrong diagnosis and a revert. Screenshots
+  still force a paint, so use it to judge pixels and never to judge time.
 - Test the opening animation at least once *without* `?t=1`. Everything else here uses it, so a
   regression in the intro path can sit unnoticed indefinitely.
+
+**Frame timing cannot be measured in this setup at all.** The tab above is throttled, and headless
+virtual time races ahead of real GPU frames, so a frame battery never finishes — raising the budget
+makes it *worse*, not better. Judge performance by work removed (samples per frame, `place()` calls
+per frame), which is countable, and leave frame rate to the human. The extension's Chrome also
+cannot reach `127.0.0.1:8000`; point it at a `vercel deploy` preview instead.
+`.iterate/*/make_perf.py` builds `dist/_perf.html` with a frame-phase profiler for a real
+foreground tab.
