@@ -815,7 +815,11 @@ function start(bytes) {
   // recent frames so one slow frame cannot cause a visible resolution flap.
   const recent = [];
   function adapt(dt) {
-    if (dt <= 0 || dt > 400) return;                 // tab switches and stalls are not signal
+    // Only judge, and only ever change resolution, while the map is sitting still. Resizing
+    // the buffer part-way through a morph or a drag reads as a glitch in the animation, and
+    // a morph is the slowest stretch of frames there is — sampling it would ratchet the
+    // resolution down on evidence from the one moment that is never representative.
+    if (dt <= 0 || dt > 400 || mixT < 1 || held.size) { recent.length = 0; return; }
     recent.push(dt);
     if (recent.length < 45) return;
     const med = recent.sort((a, b) => a - b)[recent.length >> 1];
@@ -834,18 +838,30 @@ function start(bytes) {
   // interpolate. reveal/exag/mode change what a warp means, so those invalidate both.
   const hullA = new Float32Array(hull.length), hullB = new Float32Array(hull.length);
   let aO = -1, aM = -1, bO = -1, bM = -1, kRev = -1, kExag = -1, kMode = -1;
+  let tsA = 1, tsB = 1;
+  // also returns this origin's *unwarped* width, which the ghost outline is measured against.
+  // It belongs to the endpoint, not to the blend, so it has to be interpolated like the hull —
+  // reading it from B alone made it jump the instant the origin changed.
   function fillHull(st, dst) {
     for (let i = 0; i < outLon.length; i++) {
       place(outLon[i], outLat[i], st, pB);
       dst[i * 3] = pB.x; dst[i * 3 + 1] = pB.y; dst[i * 3 + 2] = pB.ls;
     }
+    const keep = reveal; reveal = 0;
+    let tx0 = 1e9, tx1 = -1e9;
+    for (let i = 0; i < nOutline; i += 3) {
+      const x = place(outLon[i], outLat[i], st, pB).x;
+      if (x < tx0) tx0 = x; if (x > tx1) tx1 = x;
+    }
+    reveal = keep;
+    return Math.max(tx1 - tx0, 1);
   }
   function measure(m) {
     if (reveal !== kRev || exag !== kExag || B.m !== kMode) {
       kRev = reveal; kExag = exag; kMode = B.m; aO = bO = -1;   // a warp now means something else
     }
-    if (A.o !== aO || A.m !== aM) { fillHull(A, hullA); aO = A.o; aM = A.m; }
-    if (B.o !== bO || B.m !== bM) { fillHull(B, hullB); bO = B.o; bM = B.m; }
+    if (A.o !== aO || A.m !== aM) { tsA = fillHull(A, hullA); aO = A.o; aM = A.m; }
+    if (B.o !== bO || B.m !== bM) { tsB = fillHull(B, hullB); bO = B.o; bM = B.m; }
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, l0 = 1e9, l1 = -1e9;
     for (let i = 0; i < hull.length; i += 3) {
       const x = hullA[i] + (hullB[i] - hullA[i]) * m;
@@ -862,14 +878,7 @@ function start(bytes) {
     // fly map and a 9,000 km drive map stand up by the same amount. Fly uses both arms,
     // so each gets half, or its craters alone would dwarf the country.
     heightKm = height * 0.27 * fitSpan / (B.m ? 2 : 1);
-    let tx0 = 1e9, tx1 = -1e9;                     // the same outline with no warp at all
-    const keep = reveal; reveal = 0;
-    for (let i = 0; i < nOutline; i += 3) {
-      const x = place(outLon[i], outLat[i], B, pB).x;
-      if (x < tx0) tx0 = x; if (x > tx1) tx1 = x;
-    }
-    reveal = keep;
-    ghostFit = Math.min(1, (x1 - x0) / Math.max(tx1 - tx0, 1));
+    ghostFit = Math.min(1, (x1 - x0) / (tsA + (tsB - tsA) * m));
   }
 
   /* ---------------- camera ---------------- */
@@ -978,11 +987,8 @@ function start(bytes) {
     gl.uniform1f(U.uRelief, 0);
     // county lines fade out once the sheet is too squeezed to read them, where they
     // would otherwise pile up and muddy the fill
-    // County lines are 190k vertices — by far the largest buffer, and every one of them runs
-    // the full warp (twice, mid-morph). They are drawn at a third alpha and cannot be read
-    // while the map is moving anyway, so they sit out morphs and drags.
     const cAlpha = 0.34 * Math.min(1, Math.max(0, (ghostFit - 0.35) / 0.45));
-    if (cAlpha > 0.01 && m >= 1 && !held.size) { flat("#07090b", cAlpha); lines(L.county, [[0, 0]]); }
+    if (cAlpha > 0.01) { flat("#07090b", cAlpha); lines(L.county, [[0, 0]]); }
     flat("#07090b", 0.72); lines(L.state, [[0, 0]]);
     if (roads) {                      // dark casing under a light core, so it reads on any ramp
       flat("#0a0d11", 0.9); lines(L.interstate, [[0.9, 0.9], [-0.9, -0.9]]);
