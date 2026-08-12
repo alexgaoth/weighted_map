@@ -13,6 +13,10 @@ Maps of the contiguous US where distance from an origin is replaced by travel ti
 - The `*_fetch_*.py` scripts save after every row and skip rows already complete, so a killed run
   resumes. To force a refetch, delete the `.npy` first.
 - `22_build_payload.py` takes about four minutes and prints nothing until the end. It has not hung.
+- Deploy from `dist/`, not the repo root — the Vercel project link lives in `dist/.vercel`, and
+  `npx vercel deploy --prod` run from anywhere else uploads the wrong tree and serves a 404.
+  `https://cool-maps.vercel.app` is the honest check; the custom domain is behind a firewall here
+  and fails locally even when the deploy is fine.
 - Re-picking origins is cheap: `20_pick_nodes.py` snapshots `data/nodes_origins_prev.csv`, and
   `21_fetch_nodes.py` re-indexes the existing matrices onto the new list by fips before fetching.
   Delete that snapshot and every row gets fetched again.
