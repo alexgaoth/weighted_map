@@ -73,9 +73,10 @@ work. Resolution scaling buys nothing; cutting per-vertex samples and whole fram
 
 - `world()` skips the A origin whenever `uMix >= 1`, halving texture fetches outside a morph.
   Any new per-vertex sampling must stay behind that branch.
-- The frame loop draws nothing unless something actually changed (compare against the `p*`
-  previous-value vars). Add a new piece of view state and you must add it to that comparison, or
-  changing it will not repaint.
+- **Make frames cheaper, not rarer.** Skipping the paint when nothing moved looks free and is not:
+  a page that paints nothing can stop being served frames at all — measured 0 `requestAnimationFrame`
+  callbacks across 5 s of idle — and then every timed thing freezes, including the opening
+  dissolve and the tour. This was tried and reverted; don't re-add it.
 - County lines are ~190k vertices and simplification will *not* shrink them — the count is set by
   how many county arcs there are, not by detail within an arc. Raising the tolerance is wasted.
 
@@ -101,3 +102,8 @@ Headless screenshots race the page, and every earlier "bug" found this way was t
   **not** wait N `requestAnimationFrame`s first: a frame of this scene under SwiftShader can eat
   the whole virtual-time budget, and the callback simply never arrives.
 - `?tilt=`/`?spin=` (degrees) pin the camera; `tilt=90` is the old flat top-down view.
+- Driving a real browser is ground truth, but **an automated tab that never gets focus has its
+  `requestAnimationFrame` throttled to nearly nothing**, so the map creeps instead of animating
+  and looks broken. Click the page first, then judge. This cost a wrong diagnosis and a revert.
+- Test the opening animation at least once *without* `?t=1`. Everything else here uses it, so a
+  regression in the intro path can sit unnoticed indefinitely.

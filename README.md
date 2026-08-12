@@ -224,7 +224,7 @@ Search 253 places, or click any dot (the dots move with the map, and sit on the 
 | **#** | the Interstate system, warped with the map — the network every trip runs along |
 | **◔** | shading — real surface normals when raised, a hillshade of `log(stretch)` when flat |
 | **◑** | cycles three diverging palettes, all validated for colour-vision deficiency |
-| **▷** | tours the origins |
+| **▷** | walks a fixed route — DC, Fort Myers, Chicago, Milwaukee, Denver, San Francisco, Los Angeles, Bend, Eugene, Seattle — picking up from wherever you already are |
 
 Either slider's end labels are buttons: click one and it goes there.
 
