@@ -633,9 +633,15 @@ function start(bytes) {
   // Drive and Fly use different ramps, so switching mode used to repaint the whole sheet in
   // one frame while its shape took a second to follow. Cross-fade the stops instead.
   const rampBuf = new Float32Array(39);
+  let rampKey = "", rampA = null, rampB = null;
   function blendRamp(m) {
-    const a = rampFor(A.m, palI).flatMap(rgb01), b = rampFor(B.m, palI).flatMap(rgb01);
-    for (let i = 0; i < 39; i++) rampBuf[i] = a[i] + (b[i] - a[i]) * m;
+    const key = A.m + ":" + B.m + ":" + palI;
+    if (key !== rampKey) {
+      rampKey = key;
+      rampA = rampFor(A.m, palI).flatMap(rgb01);
+      rampB = rampFor(B.m, palI).flatMap(rgb01);
+    }
+    for (let i = 0; i < 39; i++) rampBuf[i] = rampA[i] + (rampB[i] - rampA[i]) * m;
     gl.uniform3fv(uRamp, rampBuf);
   }
 
@@ -786,9 +792,12 @@ function start(bytes) {
     out.hours = rr / KMH;
     return out;
   }
-  // must match lift() in the vertex shader, or the dots leave the surface
-  const lift = (t) => t >= 0 ? Math.tanh(t / (SPAN[B.m][0] * exag))
-                             : (B.m ? -Math.tanh(-t / (SPAN[B.m][1] * exag)) : 0);
+  // Must match lift() in the vertex shader, or the dots leave the surface — including the
+  // span, which the shader interpolates across a mode change. Reading SPAN[B.m] here made the
+  // two disagree for the length of a Drive<->Fly morph.
+  let spanPos = SPAN[0][0], spanNeg = SPAN[0][1], diverge = 0;
+  const lift = (t) => t >= 0 ? Math.tanh(t / (spanPos * exag))
+                             : (diverge ? -Math.tanh(-t / (spanNeg * exag)) : 0);
   const pA = { x: 0, y: 0, z: 0, ls: 0, hours: 0 }, pB = { x: 0, y: 0, z: 0, ls: 0, hours: 0 };
   const QL = META.qlon, QT = META.qlat;
   const outLon = [], outLat = [];
@@ -870,6 +879,11 @@ function start(bytes) {
     return Math.max(tx1 - tx0, 1);
   }
   function measure(m) {
+    spanPos = SPAN[A.m][0] + (SPAN[B.m][0] - SPAN[A.m][0]) * m;
+    spanNeg = SPAN[A.m][1] + (SPAN[B.m][1] - SPAN[A.m][1]) * m;
+    diverge = (m < 0.5 ? A.m : B.m) ? 1 : 0;
+    // while the two ends disagree about mode the span moves every frame, so nothing caches
+    if (A.m !== B.m && m < 1) aO = bO = -1;
     if (reveal !== kRev || exag !== kExag || B.m !== kMode) {
       kRev = reveal; kExag = exag; kMode = B.m; aO = bO = -1;   // a warp now means something else
     }
@@ -1013,12 +1027,14 @@ function start(bytes) {
       flat("#ffe9c9", 0.92); lines(L.interstate, [[0, 0]]);
     }
     flat("#e9eef4", 0.95); lines(L.nation, [[0, 0], [0.7, 0], [0, 0.7]]);
-    gl.disable(gl.DEPTH_TEST);         // the real country sits over everything, when it fits
-    gl.uniform1f(U.uForceTrue, 1);
-    flat("#e9eef4", 0.34 * ghostFit);
-    lines(L.nation, [[0, 0]]);
-    gl.uniform1f(U.uForceTrue, 0);
-    gl.enable(gl.DEPTH_TEST);
+    if (0.34 * ghostFit > 0.01) {     // the real country sits over everything, when it fits
+      gl.disable(gl.DEPTH_TEST);
+      gl.uniform1f(U.uForceTrue, 1);
+      flat("#e9eef4", 0.34 * ghostFit);
+      lines(L.nation, [[0, 0]]);
+      gl.uniform1f(U.uForceTrue, 0);
+      gl.enable(gl.DEPTH_TEST);
+    }
     gl.bindVertexArray(null);
   }
 
