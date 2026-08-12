@@ -1007,7 +1007,10 @@ function start(bytes) {
                     hgt.value = Math.round(height * 100); }
   if (heightTo > 0) setRelief(true);
   if (P.get("relief") === "1") setRelief(true);
-  if (P.get("roads") === "0") roadsBtn.onclick();
+  // set the state, don't fire the handler — it calls syncURL(), and at this point in init
+  // the t/x params have not been read yet, so it would write a shareable link that lies
+  if (P.get("roads") === "0") { roads = false;
+    roadsBtn.classList.remove("on"); roadsBtn.setAttribute("aria-pressed", "false"); }
   if (P.has("pal")) { palI = (+P.get("pal") || 0) % PALETTES.length; }
   if (P.has("tilt")) pitch = pitchTo = clamp((+P.get("tilt") || 0) * RAD, 0.06, TOP);
   if (P.has("spin")) yaw = yawTo = (+P.get("spin") || 0) * RAD;
