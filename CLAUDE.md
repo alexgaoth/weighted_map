@@ -75,6 +75,11 @@ with MSAA already dominating, and it is wrong on integrated hardware. The contex
 `antialias: false` and `powerPreference: "high-performance"`, and renders at an adaptive `scale`
 (0.75–1.5 device px per css px) that `adapt()` walks from a median of recent frame intervals.
 
+- Distance and bearing from an origin are precomputed by a transform-feedback pass on origin
+  change (`computeGeo`), never per frame, and arrive as the `aGA*`/`aGB*` attributes. A morph
+  reuses the outgoing B buffer as the incoming A. **A buffer still bound to `ARRAY_BUFFER`
+  cannot also be bound as a feedback target** — leave it bound and that one layer silently
+  never fills and vanishes, with only a `getError` to show for it. `bindGeo()` unbinds.
 - `world()` skips the A origin whenever `uMix >= 1`, halving texture fetches outside a morph.
   Any new per-vertex sampling must stay behind that branch.
 - Morph frames are the worst case — the A-origin skip is off *and* the sheet is being re-measured.
