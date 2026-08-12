@@ -95,8 +95,6 @@
       linear-gradient(90deg, var(--edge) 37.6%, var(--ink2) 37.6% 39.2%, var(--edge) 39.2%); }
   .lab[data-to] { cursor:pointer; }
   .lab[data-to]:hover { color:var(--ink2); }
-  .lab.off { opacity:.32; cursor:default; }
-  .lab.off:hover { color:var(--ink3); }
 
   /* under the title, not by the bar — the bar is centred and grows with every control */
   #key { top:148px; left:16px; padding:9px 11px; }
@@ -175,7 +173,7 @@
   <div class="grp"><span class="lab" data-to="min">real</span>
     <input type="range" id="warp" min="0" max="260" value="100"
            aria-label="Real map, to time map, to exaggerated">
-    <span class="lab" data-to="max" id="warpmax">stretched</span></div>
+    <span class="lab" data-to="max">stretched</span></div>
   <div class="sep"></div>
   <div class="grp"><span class="lab" data-to="min">flat</span>
     <input type="range" id="hgt" min="0" max="100" value="58" aria-label="Relief height">
@@ -304,13 +302,20 @@ function start(bytes) {
                     : (uDiverge > 0.5 ? -tanh(-t / uSpanNeg) : 0.0);
   }
 
-  // the sheet lifted into 3-D, with 1.0x as sea level
+  // The sheet lifted into 3-D, with 1.0x as sea level. Outside a morph the A origin
+  // contributes nothing, and skipping it halves the texture work of every vertex on screen
+  // — which is most frames, including every frame of a drag.
   vec3 world(vec2 ll, out float s, out float trueKm) {
-    float sa, sb, ra, rb;
-    vec2 pa = place(ll, uOA, uLayerA, sa, ra);
+    float sb, rb;
     vec2 pb = place(ll, uOB, uLayerB, sb, rb);
-    s = mix(sa, sb, uMix); trueKm = mix(ra, rb, uMix);
-    return vec3(mix(pa, pb, uMix), uHeight * lift(log(s)));
+    if (uMix < 1.0) {
+      float sa, ra;
+      vec2 pa = place(ll, uOA, uLayerA, sa, ra);
+      s = mix(sa, sb, uMix); trueKm = mix(ra, rb, uMix);
+      return vec3(mix(pa, pb, uMix), uHeight * lift(log(s)));
+    }
+    s = sb; trueKm = rb;
+    return vec3(pb, uHeight * lift(log(s)));
   }
 
   // treat log(stretch) as ground height and light it from the north-west
@@ -531,23 +536,24 @@ function start(bytes) {
     b.onclick = () => goto(B.o, +b.dataset.mode));
   // One axis, not two: below the notch the real map dissolves into the time map, above it
   // the same warp is pushed further. They only ever looked like two controls.
-  const warp = document.getElementById("warp"), warpMax = document.getElementById("warpmax");
-  // Exaggerating Fly is not a stronger version of Fly, it is a broken one: the multimodal
-  // stretch is mostly below 1, so s^k pulls far places *inward* past near ones. Measured on
-  // the county sample, folded triangles go 36% -> 49% between 1.0x and 2.6x. So Fly stops
-  // at the notch, and the way to make it legible is the other half of the same slider.
+  const warp = document.getElementById("warp");
+  // Each mode gets its own exaggeration range, because 1.0x means something different in
+  // each. Drive at 1.0x folds 1.4% of the sheet and spans 7.2x in radius; Fly at 1.0x folds
+  // 37% and spans 2.8x — a third of it inside out. Pulling Fly's exponent *down* fixes both
+  // at once (k=0.35: 10% folded, 5.0x span), because unfolding is what lets it spread out.
+  // So Fly's notch sits at 0.35 and its slider runs up to the raw metric at 1.0.
+  const EXAG = [[1.0, 2.6], [0.35, 1.0]];
+  const exagAt = (v) => {
+    const [lo, hi] = EXAG[B.m];
+    return v <= 100 ? lo : lo + (hi - lo) * (v - 100) / 160;
+  };
   warp.oninput = () => {
-    const cap = B.m ? 100 : 260;
-    if (+warp.value > cap) warp.value = cap;
     if (Math.abs(+warp.value - 100) < 7) warp.value = 100;      // the notch is magnetic
-    const v = +warp.value / 100;
-    revealTo = Math.min(1, v); exagTo = Math.max(1, v);
+    revealTo = Math.min(1, +warp.value / 100);
+    exagTo = exagAt(+warp.value);
     syncURL();
   };
-  function syncWarpRange() {                 // grey the half that does nothing in this mode
-    warpMax.classList.toggle("off", B.m === 1);
-    if (B.m && +warp.value > 100) { warp.value = 100; warp.oninput(); }
-  }
+  const syncWarpRange = () => { exagTo = exagAt(+warp.value); };   // same handle, new meaning
   // the end labels are buttons: click one and the slider goes there
   document.getElementById("bar").addEventListener("click", (e) => {
     const to = e.target.dataset && e.target.dataset.to;
@@ -790,7 +796,7 @@ function start(bytes) {
     if (cAlpha > 0.01) { flat("#07090b", cAlpha); lines(L.county, [[0, 0]]); }
     flat("#07090b", 0.72); lines(L.state, [[0, 0]]);
     if (roads) {                      // dark casing under a light core, so it reads on any ramp
-      flat("#0a0d11", 0.85); lines(L.interstate, [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]);
+      flat("#0a0d11", 0.9); lines(L.interstate, [[0.9, 0.9], [-0.9, -0.9]]);
       flat("#ffe9c9", 0.92); lines(L.interstate, [[0, 0]]);
     }
     flat("#e9eef4", 0.95); lines(L.nation, [[0, 0], [0.7, 0], [0, 0.7]]);
@@ -841,13 +847,18 @@ function start(bytes) {
       }
     }
     dots.length = 0;
+    const mixing = m < 1;              // outside a morph the A origin contributes nothing
     for (let i = 0; i < NM; i++) {
-      place(O[i].lon, O[i].lat, A, pA); place(O[i].lon, O[i].lat, B, pB);
-      const p = toScreen(pA.x + (pB.x - pA.x) * m, pA.y + (pB.y - pA.y) * m,
-                         pA.z + (pB.z - pA.z) * m);
+      place(O[i].lon, O[i].lat, B, pB);
+      let x = pB.x, y = pB.y, z = pB.z, hrs = pB.hours;
+      if (mixing) {
+        place(O[i].lon, O[i].lat, A, pA);
+        x = pA.x + (x - pA.x) * m; y = pA.y + (y - pA.y) * m;
+        z = pA.z + (z - pA.z) * m; hrs = pA.hours + (hrs - pA.hours) * m;
+      }
+      const p = toScreen(x, y, z);
       if (p.w <= 1e-3) continue;
-      dots.push({ i, x: p.x, y: p.y, k: clamp(dist / p.w, 0.55, 1.7),
-                  hours: pA.hours + (pB.hours - pA.hours) * m });
+      dots.push({ i, x: p.x, y: p.y, k: clamp(dist / p.w, 0.55, 1.7), hours: hrs });
     }
     for (const d of dots) {
       const cur = d.i === B.o, hot = d.i === hovered;
@@ -953,6 +964,8 @@ function start(bytes) {
   const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
   const glide = (v, to, k, snap) => Math.abs(to - v) < snap ? to : v + (to - v) * (reduce ? 1 : k);
   let m = 1, warm = true;
+  let pYaw = NaN, pPitch = 0, pZoom = 0, pPanX = 0, pPanY = 0, pW = 0, pH = 0,
+      pHov = -2, pRoads = null, pRelief = null, pPal = -1;
   function frame(now) {
     // measuring the sheet costs a few thousand warps, so only redo it when it moved —
     // orbiting the camera does not move it
@@ -966,8 +979,16 @@ function start(bytes) {
     if (yaw !== yawTo) yaw = glide(yaw, yawTo, 0.1, 0.0015);
     if (pitch !== pitchTo) pitch = glide(pitch, pitchTo, 0.1, 0.0015);
     if (touring && now - tourT0 > 2400) { tourT0 = now; goto((B.o + 1) % NM, B.m, false); }
-    if (shifted) measure(m);
-    camera(); render(m); overlay(m);
+    // Nothing moved? Draw nothing. This scene is heavy enough that rendering it 60 times a
+    // second while it sits still leaves no headroom for the frame you actually care about.
+    if (shifted || yaw !== pYaw || pitch !== pPitch || zoom !== pZoom || panX !== pPanX
+        || panY !== pPanY || W !== pW || H !== pH || hovered !== pHov || roads !== pRoads
+        || relief !== pRelief || palI !== pPal) {
+      pYaw = yaw; pPitch = pitch; pZoom = zoom; pPanX = panX; pPanY = panY;
+      pW = W; pH = H; pHov = hovered; pRoads = roads; pRelief = relief; pPal = palI;
+      if (shifted) measure(m);
+      camera(); render(m); overlay(m);
+    }
     requestAnimationFrame(frame);
   }
 
@@ -981,7 +1002,7 @@ function start(bytes) {
   if (P.get("mode") === "fly") { A.m = B.m = 1;
     document.querySelectorAll("#modes button").forEach(b =>
       b.classList.toggle("on", b.dataset.mode === "1")); }
-  if (P.has("x")) exag = exagTo = clamp(+P.get("x") || 1, 1, 2.6);
+  if (P.has("x")) exag = exagTo = clamp(+P.get("x") || 1, 0.25, 2.6);
   if (P.has("h")) { height = heightTo = clamp(+P.get("h") || 0, 0, 1);
                     hgt.value = Math.round(height * 100); }
   if (heightTo > 0) setRelief(true);
@@ -995,9 +1016,14 @@ function start(bytes) {
       document.getElementById(id).style.display = "none";
   const t0 = P.has("t") ? Math.min(1, Math.max(0, +P.get("t"))) : null;
   if (t0 !== null) reveal = revealTo = t0;
-  warp.value = Math.round((revealTo < 1 ? revealTo : exagTo) * 100);
+  // put the handle where the parameters ask for, then read the exponent back off it, so the
+  // slider and the map can never disagree about a range that differs per mode
+  const [xlo, xhi] = EXAG[B.m];
+  warp.value = revealTo < 1 ? Math.round(revealTo * 100)
+             : P.has("x") ? Math.round(100 + 160 * (exagTo - xlo) / (xhi - xlo)) : 100;
+  exag = exagTo = exagAt(+warp.value);
 
-  resize(); applyPalette(); updateReadout(); syncWarpRange();
+  resize(); applyPalette(); updateReadout();
   boot.classList.add("gone");
   setTimeout(() => boot.remove(), 600);
   requestAnimationFrame(frame);

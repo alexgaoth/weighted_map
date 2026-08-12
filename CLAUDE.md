@@ -33,10 +33,11 @@ Maps of the contiguous US where distance from an origin is replaced by travel ti
   included, or the origin dots and the framing float off the surface.
 - The per-mode colour spans `23_build_dist.py` measures also set the **terrain height** — `lift()`
   divides by the same `uSpanPos`/`uSpanNeg`. Re-picking those percentiles reshapes the relief.
-- **Fly caps exaggeration at 1.0** (`syncWarpRange()`). Its stretch is mostly below 1, so `s^k`
-  pulls far places inward past near ones: folded triangles go 36% → 49% from 1.0× to 2.6×. Don't
-  "fix" Fly's crumpling with the flight constants either — `CONNECT`, `N_NEAR_AIRPORTS`,
-  `MIN_FLY_KM` and `CRUISE` were all measured and none move folding off ~36%.
+- **`EXAG` is per mode** — Drive `s^k` runs 1.0→2.6, Fly 0.35→1.0, and each notch is its default.
+  Fly's stretch is mostly below 1, so raising k pulls far places inward past near ones; lowering
+  it cuts folding 37%→10% *and* widens the radial spread 2.8×→5.0×. Don't "fix" Fly's crumpling
+  with the flight constants instead — `CONNECT`, `N_NEAR_AIRPORTS`, `MIN_FLY_KM` and `CRUISE` were
+  all measured and none move folding off ~36%.
 
 ## Gotchas
 
@@ -65,6 +66,19 @@ Maps of the contiguous US where distance from an origin is replaced by travel ti
   regions and no seats since 2022, and some labels come back as raw `Q…` ids. Read the
   `NOT MATCHED` list `20_pick_nodes.py` prints, and patch via `BY_FIPS`, not the name lookup.
 
+## Keeping it fast
+
+The scene is vertex-bound, not fill-bound — ~600k vertex invocations a frame, each doing texture
+work. Resolution scaling buys nothing; cutting per-vertex samples and whole frames does.
+
+- `world()` skips the A origin whenever `uMix >= 1`, halving texture fetches outside a morph.
+  Any new per-vertex sampling must stay behind that branch.
+- The frame loop draws nothing unless something actually changed (compare against the `p*`
+  previous-value vars). Add a new piece of view state and you must add it to that comparison, or
+  changing it will not repaint.
+- County lines are ~190k vertices and simplification will *not* shrink them — the count is set by
+  how many county arcs there are, not by detail within an arc. Raising the tolerance is wasted.
+
 ## Verifying the WebGL page
 
 Headless screenshots race the page, and every earlier "bug" found this way was the harness:
@@ -77,6 +91,9 @@ Headless screenshots race the page, and every earlier "bug" found this way was t
   serving the old one.
 - Give `--virtual-time-budget` at least 90000. The payload is 4.7 MB and inflates before the first
   frame; at 40000 the capture is of the loading bar.
+- Use `--headless=new`, and check `pgrep -c chrome` when captures start coming back as the loading
+  bar. Old `--headless` leaves processes behind; forty of them starve SwiftShader and every
+  screenshot silently becomes a picture of the progress bar.
 - `--dump-dom` alongside `--screenshot` is the cheap way to tell a page bug from a paint artefact.
   A control whose class the DOM says is right but whose pixels say otherwise is a stale
   `backdrop-filter` layer, not a bug — this cost a chase twice.

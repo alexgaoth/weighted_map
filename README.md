@@ -147,10 +147,24 @@ should. Measured over 14 origins: `CONNECT` 1.4 → 0 gives 37.0% folded, `N_NEA
 gives 35.6%, `MIN_FLY_KM` 300 → 600 gives 36.2%, `CRUISE` 800 → 500 gives 32.4%, and making each
 destination use its own nearest airport gives 37.6%. None of them touch the ratio above.
 
-What does unfold it is easing the warp, so **Fly stops the slider at the notch**. Exaggeration
-makes Fly monotonically worse — 36% folded at 1.0×, 49% at 2.6× — because the multimodal stretch
-is mostly below 1 and `s → sᵏ` drags far places inward past near ones. Pull the slider the other
-way instead: halfway back toward the real map, folding drops to 10.4%.
+What does fix it is pulling the exponent the *other* way, so **the two modes have different
+exaggeration ranges**: Drive runs `sᵏ` from k=1.0 up to 2.6, Fly from k=0.35 up to 1.0, and each
+one's notch is its own default.
+
+That is not a cosmetic fudge, and the numbers are the argument. Folding and radial spread improve
+*together* as k comes down, because the folds are what was eating the spread:
+
+| k | folded | radial range |
+|---|---|---|
+| 1.00 | 36.9% | 2.8× |
+| 0.70 | 29.3% | 3.5× |
+| 0.50 | 20.5% | 4.3× |
+| **0.35** | **10.3%** | **5.0×** |
+| 0.25 | 3.6% | 5.6× |
+
+Fly at k=0.35 lands within reach of Drive's 1.4% and 7.2×. The slider still reaches the raw metric
+at its right-hand end, and the legend reports what is actually drawn — the arms read 0.61×–1.15×
+at the default rather than the raw field's 0.24×–1.50×.
 
 Colour is sequential in Drive (nothing is ever faster than the paper scale) and diverging in Fly,
 where a place can be closer in time than in space. Each arm's span is set from the 1st and 99th
@@ -205,7 +219,7 @@ Search 253 places, or click any dot (the dots move with the map, and sit on the 
 
 | control | what it does |
 |---|---|
-| **real ⟷ stretched** | one axis of distortion. Up to the notch the real map dissolves into the time map; past it the same warp is pushed further, `s → sᵏ` up to 2.6. The notch is where an hour is exactly 100 km, and the slider snaps to it. |
+| **real ⟷ stretched** | one axis of distortion. Up to the notch the real map dissolves into the time map; past it the same warp is pushed further, `s → sᵏ`. The range is per mode — Drive k=1.0→2.6, Fly k=0.35→1.0 — because 1.0 means a legible map in one and a folded one in the other. The slider snaps to the notch. |
 | **flat ⟷ tall** | height of the relief; at flat the sheet is a plane and the map is the 2-D one |
 | **#** | the Interstate system, warped with the map — the network every trip runs along |
 | **◔** | shading — real surface normals when raised, a hillshade of `log(stretch)` when flat |
