@@ -251,7 +251,13 @@ function start(bytes) {
     return new Uint16Array(bytes.buffer, b.offset, b.count);
   };
   const glc = document.getElementById("gl"), ovc = document.getElementById("ov");
-  const gl = glc.getContext("webgl2", { antialias: true, alpha: false });
+  // No MSAA: at 4x on a 2x-DPR laptop screen that is ~29M samples a frame, and this scene is
+  // heavy enough without it. Resolution is scaled adaptively below instead, which buys the
+  // same edge quality far more cheaply. high-performance asks for the discrete GPU if there
+  // is one — the default picks integrated.
+  const gl = glc.getContext("webgl2",
+    { antialias: false, alpha: false, powerPreference: "high-performance",
+      desynchronized: true, preserveDrawingBuffer: false });
   if (!gl) { bootmsg.textContent = "this map needs webgl2"; return; }
   const ctx = ovc.getContext("2d");
 
@@ -339,8 +345,9 @@ function start(bytes) {
     float s, trueKm, s2, t2;
     vec3 p = world(ll, s, trueKm);
     vT = log(s);
-    // lit geometry needs the true normal of the warped sheet, so difference the same
-    // warp twice more; flat lines are never lit, so they skip the extra samples
+    // Per-vertex normals, differenced from the same warp. Taking these from dFdx of the
+    // position in the fragment shader is much cheaper but visibly facets the relief — the
+    // mesh is 20 km, which is 15-20 px on screen, not the 2-3 px that would hide it.
     if (uHeight > 0.0 && uFlat.a < 0.5) {
       float e = uGridInfo.z * 0.5;
       vec3 n = cross(world(ll + vec2(e, 0.0), s2, t2) - p,
@@ -659,25 +666,65 @@ function start(bytes) {
 
   let W = 0, H = 0, DPR = 1, ghostFit = 1;
   let cx = 0, cy = 0, fitSpan = 1, lsMid = 0, heightKm = 0, dist = 1;
+  // How many device pixels per CSS pixel we actually render at. Starts at 1.5 rather than the
+  // display's 2 — the difference is hard to see on a shaded surface and costs 44% of the
+  // fill — and `adapt()` walks it down further on hardware that cannot keep up.
+  let scale = Math.min(devicePixelRatio || 1, 1.5), scaleTo = scale;
+  const SCALE_MIN = 0.75, SCALE_MAX = Math.min(devicePixelRatio || 1, 1.5);
   function resize() {
-    DPR = Math.min(devicePixelRatio || 1, 2);
+    DPR = scale;
     W = innerWidth; H = innerHeight;
-    for (const c of [glc, ovc]) { c.width = Math.round(W * DPR); c.height = Math.round(H * DPR); }
+    glc.width = Math.round(W * DPR); glc.height = Math.round(H * DPR);
     gl.viewport(0, 0, glc.width, glc.height);
-    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    // the overlay is cheap 2-D and carries the only text on the map, so it never goes below
+    // one device pixel per css pixel however far the sheet's resolution is scaled back
+    const od = Math.max(DPR, 1);
+    ovc.width = Math.round(W * od); ovc.height = Math.round(H * od);
+    ctx.setTransform(od, 0, 0, od, 0, 0);
   }
   addEventListener("resize", resize);
+
+  // Walk the render scale to whatever the machine can actually sustain. Judged on a median of
+  // recent frames so one slow frame cannot cause a visible resolution flap.
+  const recent = [];
+  function adapt(dt) {
+    if (dt <= 0 || dt > 400) return;                 // tab switches and stalls are not signal
+    recent.push(dt);
+    if (recent.length < 45) return;
+    const med = recent.sort((a, b) => a - b)[recent.length >> 1];
+    recent.length = 0;
+    const want = med > 24 ? scaleTo - 0.25 : med < 12 ? scaleTo + 0.25 : scaleTo;
+    const next = Math.max(SCALE_MIN, Math.min(SCALE_MAX, want));
+    if (next !== scaleTo) { scaleTo = next; scale = next; resize(); }
+  }
 
   // the warped sheet in world km — depends on the morph, not on the camera. `hull` keeps
   // the outline as (x, y, logStretch) so the camera can frame it exactly at any tilt.
   const hull = new Float32Array(outLon.length * 3);
-  function measure(m) {
-    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, l0 = 1e9, l1 = -1e9;
+  // Each endpoint of a morph is a fixed shape; only the blend between them moves. Warping
+  // both from scratch every frame was ~5,700 place() calls — trig and a grid lookup apiece —
+  // on exactly the frames that also pay double in the vertex shader. Cache each side and
+  // interpolate. reveal/exag/mode change what a warp means, so those invalidate both.
+  const hullA = new Float32Array(hull.length), hullB = new Float32Array(hull.length);
+  let aO = -1, aM = -1, bO = -1, bM = -1, kRev = -1, kExag = -1, kMode = -1;
+  function fillHull(st, dst) {
     for (let i = 0; i < outLon.length; i++) {
-      place(outLon[i], outLat[i], A, pA); place(outLon[i], outLat[i], B, pB);
-      const x = pA.x + (pB.x - pA.x) * m, y = pA.y + (pB.y - pA.y) * m;
-      const l = pA.ls + (pB.ls - pA.ls) * m;
-      hull[i * 3] = x; hull[i * 3 + 1] = y; hull[i * 3 + 2] = l;
+      place(outLon[i], outLat[i], st, pB);
+      dst[i * 3] = pB.x; dst[i * 3 + 1] = pB.y; dst[i * 3 + 2] = pB.ls;
+    }
+  }
+  function measure(m) {
+    if (reveal !== kRev || exag !== kExag || B.m !== kMode) {
+      kRev = reveal; kExag = exag; kMode = B.m; aO = bO = -1;   // a warp now means something else
+    }
+    if (A.o !== aO || A.m !== aM) { fillHull(A, hullA); aO = A.o; aM = A.m; }
+    if (B.o !== bO || B.m !== bM) { fillHull(B, hullB); bO = B.o; bM = B.m; }
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, l0 = 1e9, l1 = -1e9;
+    for (let i = 0; i < hull.length; i += 3) {
+      const x = hullA[i] + (hullB[i] - hullA[i]) * m;
+      const y = hullA[i + 1] + (hullB[i + 1] - hullA[i + 1]) * m;
+      const l = hullA[i + 2] + (hullB[i + 2] - hullA[i + 2]) * m;
+      hull[i] = x; hull[i + 1] = y; hull[i + 2] = l;
       if (x < x0) x0 = x; if (x > x1) x1 = x;
       if (y < y0) y0 = y; if (y > y1) y1 = y;
       if (l < l0) l0 = l; if (l > l1) l1 = l;
@@ -806,8 +853,11 @@ function start(bytes) {
     gl.uniform1f(U.uRelief, 0);
     // county lines fade out once the sheet is too squeezed to read them, where they
     // would otherwise pile up and muddy the fill
+    // County lines are 190k vertices — by far the largest buffer, and every one of them runs
+    // the full warp (twice, mid-morph). They are drawn at a third alpha and cannot be read
+    // while the map is moving anyway, so they sit out morphs and drags.
     const cAlpha = 0.34 * Math.min(1, Math.max(0, (ghostFit - 0.35) / 0.45));
-    if (cAlpha > 0.01) { flat("#07090b", cAlpha); lines(L.county, [[0, 0]]); }
+    if (cAlpha > 0.01 && m >= 1 && !held.size) { flat("#07090b", cAlpha); lines(L.county, [[0, 0]]); }
     flat("#07090b", 0.72); lines(L.state, [[0, 0]]);
     if (roads) {                      // dark casing under a light core, so it reads on any ramp
       flat("#0a0d11", 0.9); lines(L.interstate, [[0.9, 0.9], [-0.9, -0.9]]);
@@ -978,7 +1028,9 @@ function start(bytes) {
   const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
   const glide = (v, to, k, snap) => Math.abs(to - v) < snap ? to : v + (to - v) * (reduce ? 1 : k);
   let m = 1, warm = true;
+  let lastNow = 0;
   function frame(now) {
+    adapt(lastNow ? now - lastNow : 0); lastNow = now;
     // measuring the sheet costs a few thousand warps, so only redo it when it moved —
     // orbiting the camera does not move it
     let shifted = warm; warm = false;

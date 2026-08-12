@@ -68,11 +68,19 @@ Maps of the contiguous US where distance from an origin is replaced by travel ti
 
 ## Keeping it fast
 
-The scene is vertex-bound, not fill-bound — ~600k vertex invocations a frame, each doing texture
-work. Resolution scaling buys nothing; cutting per-vertex samples and whole frames does.
+Both ends cost. ~600k vertex invocations a frame, each doing trig and texture work — *and*, until
+measured on an integrated GPU, a 3840×1910 backbuffer at 4× MSAA, which is ~29M samples a frame.
+An earlier note here said resolution scaling buys nothing; that was measured on a discrete GPU
+with MSAA already dominating, and it is wrong on integrated hardware. The context now asks for
+`antialias: false` and `powerPreference: "high-performance"`, and renders at an adaptive `scale`
+(0.75–1.5 device px per css px) that `adapt()` walks from a median of recent frame intervals.
 
 - `world()` skips the A origin whenever `uMix >= 1`, halving texture fetches outside a morph.
   Any new per-vertex sampling must stay behind that branch.
+- Morph frames are the worst case — the A-origin skip is off *and* the sheet is being re-measured.
+  `measure()` caches each endpoint's hull and interpolates; county lines sit morphs and drags out.
+- Normals must stay per-vertex. `dFdx` of the position is far cheaper but facets the relief
+  visibly: the mesh is 20 km, which is 15–20 px on screen, not the 2–3 px that would hide it.
 - **Make frames cheaper, not rarer.** Skipping the paint when nothing moved looks free and is not:
   a page that paints nothing can stop being served frames at all — measured 0 `requestAnimationFrame`
   callbacks across 5 s of idle — and then every timed thing freezes, including the opening

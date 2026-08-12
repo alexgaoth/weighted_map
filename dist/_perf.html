@@ -853,11 +853,8 @@ function start(bytes) {
     gl.uniform1f(U.uRelief, 0);
     // county lines fade out once the sheet is too squeezed to read them, where they
     // would otherwise pile up and muddy the fill
-    // County lines are 190k vertices — by far the largest buffer, and every one of them runs
-    // the full warp (twice, mid-morph). They are drawn at a third alpha and cannot be read
-    // while the map is moving anyway, so they sit out morphs and drags.
     const cAlpha = 0.34 * Math.min(1, Math.max(0, (ghostFit - 0.35) / 0.45));
-    if (cAlpha > 0.01 && m >= 1 && !held.size) { flat("#07090b", cAlpha); lines(L.county, [[0, 0]]); }
+    if (cAlpha > 0.01) { flat("#07090b", cAlpha); lines(L.county, [[0, 0]]); }
     flat("#07090b", 0.72); lines(L.state, [[0, 0]]);
     if (roads) {                      // dark casing under a light core, so it reads on any ramp
       flat("#0a0d11", 0.9); lines(L.interstate, [[0.9, 0.9], [-0.9, -0.9]]);
@@ -1028,9 +1025,7 @@ function start(bytes) {
   const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
   const glide = (v, to, k, snap) => Math.abs(to - v) < snap ? to : v + (to - v) * (reduce ? 1 : k);
   let m = 1, warm = true;
-  let lastNow = 0;
   function frame(now) {
-    adapt(lastNow ? now - lastNow : 0); lastNow = now;
     // measuring the sheet costs a few thousand warps, so only redo it when it moved —
     // orbiting the camera does not move it
     let shifted = warm; warm = false;
@@ -1051,8 +1046,12 @@ function start(bytes) {
     // not: a page that paints nothing stops being served frames at all, rAF goes quiet, and
     // every timed thing — the opening dissolve, the tour, any easing — freezes where it is.
     // Measured at 0 rAF callbacks across 5 s of idle. Make frames cheaper, not rarer.
-    if (shifted) measure(m);
-    camera(); render(m); overlay(m);
+    { const _a = performance.now();
+      if (shifted) measure(m); const _b = performance.now();
+      camera(); const _c = performance.now();
+      render(m); const _d = performance.now();
+      overlay(m); const _e = performance.now();
+      window.__rec && window.__rec(_b-_a, _c-_b, _d-_c, _e-_d, now, mixT < 1, dist); }
     requestAnimationFrame(frame);
   }
 
@@ -1103,6 +1102,83 @@ function start(bytes) {
                        if (heightTo > 0) pitchTo = HOME; }, reduce ? 0 : 700);
   }
 }
+})();
+</script>
+
+<script>
+(() => {
+  let on = false, rows = [], prev = 0;
+  window.__rec = (meas, cam, rend, ovl, now, morphing, dist) => {
+    if (!on) { prev = now; return; }
+    rows.push([meas, cam, rend, ovl, prev ? now - prev : 0, morphing ? 1 : 0, dist]);
+    prev = now;
+  };
+  const stat = (v) => {
+    if (!v.length) return null;
+    const s = [...v].sort((a, b) => a - b);
+    return { med: +s[s.length >> 1].toFixed(2),
+             p95: +s[Math.min(s.length - 1, Math.floor(s.length * 0.95))].toFixed(2) };
+  };
+  window.__perf = {
+    ready: () => !document.getElementById("boot"),
+    collect: (n) => new Promise(r => {
+      rows = []; prev = 0; on = true;
+      const done = () => {
+        if (rows.length < n) return void requestAnimationFrame(done);
+        on = false;
+        const col = (i, f) => stat(rows.filter(f).map(x => x[i]));
+        const all = () => true, mo = (x) => x[5] === 1;
+        // count reversals in the solved camera distance: pulsing shows up here
+        const d = rows.map(x => x[6]);
+        let flips = 0;
+        for (let i = 2; i < d.length; i++) {
+          const a = d[i-1] - d[i-2], b = d[i] - d[i-1];
+          if (a * b < 0 && Math.abs(b) > d[i] * 0.0015) flips++;
+        }
+        r({ n: rows.length, morphFrames: rows.filter(mo).length,
+            measure: col(0, all), camera: col(1, all), render: col(2, all),
+            overlay: col(3, all), frame: col(4, all),
+            cpu: stat(rows.map(x => x[0]+x[1]+x[2]+x[3])),
+            cpu_morph: stat(rows.filter(mo).map(x => x[0]+x[1]+x[2]+x[3])),
+            distFlips: flips });
+      };
+      requestAnimationFrame(done);
+    }),
+    drag: (n) => {
+      const ov = document.getElementById("ov");
+      const ev = (t, x, y, ex) => ov.dispatchEvent(new PointerEvent(t, Object.assign(
+        { pointerId: 1, clientX: x, clientY: y, bubbles: true, isPrimary: true }, ex)));
+      ev("pointerdown", 700, 450);
+      let i = 0;
+      const step = () => {
+        ev("pointermove", 700 + Math.sin(i / 5) * 170, 450 + Math.cos(i / 8) * 55, { buttons: 1 });
+        if (++i < n) requestAnimationFrame(step); else ev("pointerup", 700, 450);
+      };
+      requestAnimationFrame(step);
+    },
+    morph: () => document.getElementById("next").click(),
+  };
+
+  // ?auto=1 runs the whole battery and reports through the title, for headless capture
+  if (location.search.includes("auto=1")) {
+    const boot = async () => {
+      if (!window.__perf.ready()) return void requestAnimationFrame(boot);
+      const out = {};
+      await window.__perf.collect(8);                       // settle
+      out.rest = await window.__perf.collect(25);
+      window.__perf.drag(40);
+      out.drag = await window.__perf.collect(30);
+      const morphs = [];
+      for (let k = 0; k < 2; k++) {
+        window.__perf.morph();
+        morphs.push(await window.__perf.collect(28));
+      }
+      out.morph = morphs[1];
+      out.morphFramesSeen = morphs.map(x => x.morphFrames);
+      document.title = "PERF " + JSON.stringify(out);
+    };
+    requestAnimationFrame(boot);
+  }
 })();
 </script>
 </body>

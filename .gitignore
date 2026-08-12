@@ -17,3 +17,4 @@ data/map_payload.bin
 data/map_payload.json
 data/sim_payload.bin
 data/sim_payload.json
+.iterate/
