@@ -264,7 +264,11 @@ function start(bytes) {
   const VS = `#version 300 es
   precision highp float; precision highp usampler2DArray;
   in vec2 aQ;
-  uniform vec2 uQLon, uQLat, uOA, uOB, uGridSize, uPixel;
+  // (great-circle km, sin bearing, cos bearing) from each origin, computed once per origin
+  // by the transform-feedback pass below. 0 is this vertex; 1 and 2 are the two neighbours
+  // the mesh differences for its normal, and are only bound for the mesh.
+  in vec3 aGA0, aGA1, aGA2, aGB0, aGB1, aGB2;
+  uniform vec2 uQLon, uQLat, uGridSize, uPixel;
   uniform vec3 uGridInfo, uEye;
   uniform vec4 uFlat;
   uniform mat4 uVP;
@@ -299,16 +303,13 @@ function start(bytes) {
     return uExag == 1.0 ? v : pow(v, uExag);
   }
 
-  vec2 place(vec2 ll, vec2 o, int layer, out float s, out float trueKm) {
-    float p1 = radians(o.y), p2 = radians(ll.y);
-    float dl = radians(ll.x - o.x), dp = p2 - p1;
-    float a = sin(dp * 0.5), b = sin(dl * 0.5);
-    float h = a*a + cos(p1) * cos(p2) * b*b;
-    float r = 2.0 * R * asin(sqrt(clamp(h, 0.0, 1.0)));
-    float az = atan(sin(dl) * cos(p2), cos(p1) * sin(p2) - sin(p1) * cos(p2) * cos(dl));
+  // The bearing and distance from an origin to a vertex never change until the origin does,
+  // so they arrive as an attribute rather than being re-derived — that is an asin, an atan2
+  // and six sin/cos saved on every one of ~476k vertex invocations a frame.
+  vec2 place(vec3 g, vec2 ll, int layer, out float s, out float trueKm) {
     s = mix(1.0, samp(layer, ll), uReveal * (1.0 - uForceTrue));
-    trueKm = r;
-    return vec2(r * s * sin(az), r * s * cos(az));
+    trueKm = g.x;
+    return vec2(g.x * s * g.y, g.x * s * g.z);
   }
 
   // Height, on exactly the two-armed scale the colour uses, so hue and elevation say one
@@ -322,12 +323,12 @@ function start(bytes) {
   // The sheet lifted into 3-D, with 1.0x as sea level. Outside a morph the A origin
   // contributes nothing, and skipping it halves the texture work of every vertex on screen
   // — which is most frames, including every frame of a drag.
-  vec3 world(vec2 ll, out float s, out float trueKm) {
+  vec3 world(vec2 ll, vec3 ga, vec3 gb, out float s, out float trueKm) {
     float sb, rb;
-    vec2 pb = place(ll, uOB, uLayerB, sb, rb);
+    vec2 pb = place(gb, ll, uLayerB, sb, rb);
     if (uMix < 1.0) {
       float sa, ra;
-      vec2 pa = place(ll, uOA, uLayerA, sa, ra);
+      vec2 pa = place(ga, ll, uLayerA, sa, ra);
       s = mix(sa, sb, uMix); trueKm = mix(ra, rb, uMix);
       return vec3(mix(pa, pb, uMix), uHeight * lift(log(s)));
     }
@@ -348,15 +349,15 @@ function start(bytes) {
     vec2 ll = vec2(uQLon.x + aQ.x / 65535.0 * uQLon.y,
                    uQLat.x + aQ.y / 65535.0 * uQLat.y);
     float s, trueKm, s2, t2;
-    vec3 p = world(ll, s, trueKm);
+    vec3 p = world(ll, aGA0, aGB0, s, trueKm);
     vT = log(s);
     // Per-vertex normals, differenced from the same warp. Taking these from dFdx of the
     // position in the fragment shader is much cheaper but visibly facets the relief — the
     // mesh is 20 km, which is 15-20 px on screen, not the 2-3 px that would hide it.
     if (uHeight > 0.0 && uFlat.a < 0.5) {
-      float e = uGridInfo.z * 0.5;
-      vec3 n = cross(world(ll + vec2(e, 0.0), s2, t2) - p,
-                     world(ll + vec2(0.0, e), s2, t2) - p);
+      float e = uGridInfo.z * 0.5;               // must equal GEO_EPS in the feedback pass
+      vec3 n = cross(world(ll + vec2(e, 0.0), aGA1, aGB1, s2, t2) - p,
+                     world(ll + vec2(0.0, e), aGA2, aGB2, s2, t2) - p);
       n = dot(n, n) > 0.0 ? normalize(n) : vec3(0.0, 0.0, 1.0);
       if (dot(n, uEye - p) < 0.0) n = -n;          // the underside of a fold is lit too
       vShade = max(dot(n, normalize(SUN)), 0.0);
@@ -368,6 +369,34 @@ function start(bytes) {
     gl_Position.z += uFold * clamp(trueKm / 6000.0, 0.0, 1.0) * gl_Position.w;
     gl_Position.xy += uPixel * gl_Position.w;
   }`;
+
+  // Run once per origin, never per frame: turns each vertex's lon/lat into its distance and
+  // bearing from that origin. WITH_OFFSETS also emits the two neighbours the mesh needs for
+  // its normal. The epsilon here must match the one in the main shader exactly.
+  const GEO_VS = (offsets) => `#version 300 es
+  precision highp float;
+  in vec2 aQ;
+  uniform vec2 uQLon, uQLat, uO;
+  uniform float uEps;
+  out vec3 vG0;${offsets ? "\n  out vec3 vG1; out vec3 vG2;" : ""}
+  const float R = 6371.0088;
+  vec3 geo(vec2 ll) {
+    float p1 = radians(uO.y), p2 = radians(ll.y);
+    float dl = radians(ll.x - uO.x), dp = p2 - p1;
+    float a = sin(dp * 0.5), b = sin(dl * 0.5);
+    float h = a*a + cos(p1) * cos(p2) * b*b;
+    float r = 2.0 * R * asin(sqrt(clamp(h, 0.0, 1.0)));
+    float az = atan(sin(dl) * cos(p2), cos(p1) * sin(p2) - sin(p1) * cos(p2) * cos(dl));
+    return vec3(r, sin(az), cos(az));
+  }
+  void main() {
+    vec2 ll = vec2(uQLon.x + aQ.x / 65535.0 * uQLon.y,
+                   uQLat.x + aQ.y / 65535.0 * uQLat.y);
+    vG0 = geo(ll);${offsets ? "\n    vG1 = geo(ll + vec2(uEps, 0.0));\n    vG2 = geo(ll + vec2(0.0, uEps));" : ""}
+    gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+  }`;
+  const GEO_FS = `#version 300 es
+  precision highp float; out vec4 o; void main() { o = vec4(0.0); }`;
 
   const FS = `#version 300 es
   precision highp float;
@@ -395,27 +424,83 @@ function start(bytes) {
   gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS));
   gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
   gl.bindAttribLocation(prog, 0, "aQ");
+  ["aGA0", "aGA1", "aGA2", "aGB0", "aGB1", "aGB2"].forEach((n, i) =>
+    gl.bindAttribLocation(prog, i + 1, n));
   gl.linkProgram(prog);
   if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   gl.useProgram(prog);
   const U = {};
-  for (const n of ["uQLon","uQLat","uOA","uOB","uGridSize","uGridInfo","uVP","uEye","uMix","uReveal",
+  for (const n of ["uQLon","uQLat","uGridSize","uGridInfo","uVP","uEye","uMix","uReveal",
                    "uForceTrue","uSScale","uExag","uRelief","uHeight","uFold",
                    "uLayerA","uLayerB","uGrids","uFlat",
                    "uAlpha","uPixel","uSpanPos","uSpanNeg","uDiverge"])
     U[n] = gl.getUniformLocation(prog, n);
   const uRamp = gl.getUniformLocation(prog, "uRamp[0]");
 
-  const mkvao = (data) => {
-    const a = gl.createVertexArray(); gl.bindVertexArray(a);
-    const b = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  // one program per output width: the mesh wants its two normal neighbours, lines do not
+  const geoProg = [false, true].map((offsets) => {
+    const p = gl.createProgram();
+    gl.attachShader(p, sh(gl.VERTEX_SHADER, GEO_VS(offsets)));
+    gl.attachShader(p, sh(gl.FRAGMENT_SHADER, GEO_FS));
+    gl.bindAttribLocation(p, 0, "aQ");
+    gl.transformFeedbackVaryings(p, offsets ? ["vG0", "vG1", "vG2"] : ["vG0"],
+                                 gl.INTERLEAVED_ATTRIBS);
+    gl.linkProgram(p);
+    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    gl.useProgram(p);
+    gl.uniform2f(gl.getUniformLocation(p, "uQLon"), META.qlon[0], META.qlon[1]);
+    gl.uniform2f(gl.getUniformLocation(p, "uQLat"), META.qlat[0], META.qlat[1]);
+    gl.uniform1f(gl.getUniformLocation(p, "uEps"), G.d * 0.5);   // == uGridInfo.z * 0.5
+    return { p, uO: gl.getUniformLocation(p, "uO") };
+  });
+  gl.useProgram(prog);
+  const tfo = gl.createTransformFeedback();
+
+  const mkvao = (data, withOffsets) => {
+    const wide = withOffsets ? 3 : 1;
+    const n = data.length / 2;
+    const src = gl.createBuffer();                       // the quantised lon/lat, never changes
+    gl.bindBuffer(gl.ARRAY_BUFFER, src);
     gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    // one geometry buffer per morph endpoint; goto() swaps them so only the new side is filled
+    const geo = [0, 1].map(() => {
+      const b = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, b);
+      gl.bufferData(gl.ARRAY_BUFFER, n * wide * 3 * 4, gl.DYNAMIC_COPY);
+      return b;
+    });
+    const feed = gl.createVertexArray();                 // input side of the feedback pass
+    gl.bindVertexArray(feed);
+    gl.bindBuffer(gl.ARRAY_BUFFER, src);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.UNSIGNED_SHORT, false, 0, 0);
     gl.bindVertexArray(null);
-    return { vao: a, n: data.length / 2 };
+    const o = { vao: gl.createVertexArray(), feed, geo, src, n, wide };
+    bindGeo(o, 0, 1);
+    return o;
   };
-  const mesh = mkvao(grab("mesh_xy"));
+  // point the draw VAO at whichever buffer currently holds A and which holds B
+  function bindGeo(o, ai, bi) {
+    gl.bindVertexArray(o.vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, o.src);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.UNSIGNED_SHORT, false, 0, 0);
+    for (const [side, which] of [[0, ai], [1, bi]]) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, o.geo[which]);
+      for (let k = 0; k < 3; k++) {
+        const loc = 1 + side * 3 + k;
+        if (k < o.wide) {
+          gl.enableVertexAttribArray(loc);
+          gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, o.wide * 12, k * 12);
+        } else gl.disableVertexAttribArray(loc);   // lines never read the normal neighbours
+      }
+    }
+    gl.bindVertexArray(null);
+    // Leave nothing bound to ARRAY_BUFFER: a buffer bound there cannot also be bound as a
+    // transform-feedback target, and the last layer set up here would silently never fill.
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  }
+  const mesh = mkvao(grab("mesh_xy"), true);
   const midx = grab("mesh_idx");
   gl.bindVertexArray(mesh.vao);
   const ib = gl.createBuffer();
@@ -423,8 +508,44 @@ function start(bytes) {
   gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, midx, gl.STATIC_DRAW);
   gl.bindVertexArray(null);
   const nationQ = grab("line_nation");
-  const L = { county: mkvao(grab("line_county")), state: mkvao(grab("line_state")),
-              nation: mkvao(nationQ), interstate: mkvao(grab("line_interstate")) };
+  const L = { county: mkvao(grab("line_county"), false), state: mkvao(grab("line_state"), false),
+              nation: mkvao(nationQ, false), interstate: mkvao(grab("line_interstate"), false) };
+  const ALL = [mesh, L.county, L.state, L.nation, L.interstate];
+
+  // Fill one endpoint's geometry for a given origin. Runs on origin change, not per frame.
+  let slotA = 0, slotB = 1;
+  function computeGeo(slot, origin) {
+    gl.enable(gl.RASTERIZER_DISCARD);
+    gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, tfo);
+    for (const o of ALL) {
+      const g = geoProg[o.wide === 3 ? 1 : 0];
+      gl.useProgram(g.p);
+      gl.uniform2f(g.uO, O[origin].lon, O[origin].lat);
+      gl.bindVertexArray(o.feed);
+      gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, o.geo[slot]);
+      gl.beginTransformFeedback(gl.POINTS);
+      gl.drawArrays(gl.POINTS, 0, o.n);
+      gl.endTransformFeedback();
+      gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+    }
+    gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, null);
+    gl.bindVertexArray(null);
+    gl.disable(gl.RASTERIZER_DISCARD);
+    gl.useProgram(prog);
+    // once only: getError forces a sync with the GPU, and every later call to this runs at
+    // the first frame of a morph, which is the last place to stall the pipeline
+    if (checkedGeo) return;
+    checkedGeo = true;
+    if (gl.getError()) console.warn("geometry feedback pass failed");
+  }
+  let checkedGeo = false;
+  // A morph always starts from where B was, so the old B buffer becomes the new A for free
+  function setOrigins(a, b, swap) {
+    if (swap) { const t = slotA; slotA = slotB; slotB = t; }
+    computeGeo(slotB, b);
+    if (!swap) computeGeo(slotA, a);
+    for (const o of ALL) bindGeo(o, slotA, slotB);
+  }
 
   const grids = grab("grids");
   if (gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS) < NM) {
@@ -510,6 +631,7 @@ function start(bytes) {
   function goto(o, m, user = true) {
     if (o === B.o && m === B.m) return;
     A = { o: B.o, m: B.m }; B = { o, m }; mixT = 0; morphT0 = performance.now();
+    setOrigins(A.o, B.o, true);        // the outgoing B is the incoming A, so reuse it
     if (user) { touring = false; syncTour(); }
     document.querySelectorAll("#modes button").forEach(b =>
       b.classList.toggle("on", +b.dataset.mode === m));
@@ -831,8 +953,6 @@ function start(bytes) {
     gl.useProgram(prog);
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
-    gl.uniform2f(U.uOA, O[A.o].lon, O[A.o].lat);
-    gl.uniform2f(U.uOB, O[B.o].lon, O[B.o].lat);
     gl.uniform1i(U.uLayerA, layer(A));
     gl.uniform1i(U.uLayerB, layer(B));
     gl.uniform1f(U.uMix, m);
@@ -1106,6 +1226,7 @@ function start(bytes) {
              : P.has("x") ? Math.round(100 + 160 * (exagTo - xlo) / (xhi - xlo)) : 100;
   exag = exagTo = exagAt(+warp.value);
 
+  setOrigins(A.o, B.o, false);
   resize(); applyPalette(); updateReadout();
   boot.classList.add("gone");
   setTimeout(() => boot.remove(), 600);
