@@ -292,7 +292,12 @@ function start(bytes) {
     float d = float(texelFetch(uGrids, ivec3(i0 + ivec2(1,1), L), 0).r);
     return mix(mix(a,b,fr.x), mix(c,d,fr.x), fr.y) / uSScale;
   }
-  float samp(int layer, vec2 ll) { return pow(max(raw(layer, ll), 1e-4), uExag); }
+  // pow() is a transcendental run on every vertex of every layer; at the default exaggeration
+  // it is raising to the first power. The branch is on a uniform, so it costs nothing.
+  float samp(int layer, vec2 ll) {
+    float v = max(raw(layer, ll), 1e-4);
+    return uExag == 1.0 ? v : pow(v, uExag);
+  }
 
   vec2 place(vec2 ll, vec2 o, int layer, out float s, out float trueKm) {
     float p1 = radians(o.y), p2 = radians(ll.y);
@@ -924,11 +929,22 @@ function start(bytes) {
       if (p.w <= 1e-3) continue;
       dots.push({ i, x: p.x, y: p.y, k: clamp(dist / p.w, 0.55, 1.7), hours: hrs });
     }
+    // 250-odd identical dots: one path and one fill, not one of each per dot. Canvas pays
+    // per path, not per arc, and this runs every frame.
+    ctx.fillStyle = "#e9eef4"; ctx.globalAlpha = 0.3;
+    ctx.beginPath();
     for (const d of dots) {
+      if (d.i === B.o || d.i === hovered) continue;
+      ctx.moveTo(d.x + 1.9 * d.k, d.y);
+      ctx.arc(d.x, d.y, 1.9 * d.k, 0, 6.2832);
+    }
+    ctx.fill();
+    for (const d of dots) {                       // the two that look different
       const cur = d.i === B.o, hot = d.i === hovered;
-      ctx.beginPath(); ctx.arc(d.x, d.y, (cur ? 5.5 : hot ? 4.5 : 1.9) * d.k, 0, 6.2832);
+      if (!cur && !hot) continue;
+      ctx.beginPath(); ctx.arc(d.x, d.y, (cur ? 5.5 : 4.5) * d.k, 0, 6.2832);
       ctx.fillStyle = cur ? "#ff7a45" : "#e9eef4";
-      ctx.globalAlpha = cur ? 1 : hot ? 0.95 : 0.3; ctx.fill();
+      ctx.globalAlpha = cur ? 1 : 0.95; ctx.fill();
       if (cur) { ctx.globalAlpha = 0.85; ctx.strokeStyle = "#07090b";
                  ctx.lineWidth = 1.8; ctx.stroke(); }
     }
