@@ -54,15 +54,14 @@ Maps of the contiguous US where distance from an origin is replaced by travel ti
 
 ## Gotchas
 
-- **The stretch grid is `R16F`, not `R16UI`,** purely so the sampler can filter it: one
-  `texture()` call instead of four `texelFetch` and six mixes by hand, on ~476k vertices a frame.
-  Integer textures cannot be filtered at all. The two modes share a layer, so `raw()`'s clamp to
-  `uGridSize - 1.001` is load-bearing — it keeps the bilinear kernel one row short of the seam,
-  and without it Drive bleeds into Fly.
-- **The stretch grid texture.** A grid row is `nlon * 2` bytes and `nlon` is odd (121), so the
-  default 4-byte `UNPACK_ALIGNMENT` makes GL reject `texSubImage3D` and leave the texture zeroed —
-  every stretch reads 0 and the map renders at ~1/10 scale, silently.
-  `gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)` before the upload.
+- **The stretch grid texture.** It is `R16F`, not the `R16UI` the payload ships, purely so the
+  sampler can filter it — one `texture()` call instead of four `texelFetch` and six mixes by
+  hand, on ~476k vertices a frame. Integer textures cannot be filtered at all. Two things are
+  load-bearing: `raw()`'s clamp to `uGridSize - 1.001` keeps the bilinear kernel one row short of
+  the seam where the two modes meet in a shared layer (without it Drive bleeds into Fly), and
+  `gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1)` before the upload — `nlon` is odd (121), so any
+  narrower texel type gives rows GL rejects outright, leaving the texture zeroed and the map
+  rendering at ~1/10 scale with no error at all.
 - **Coincident county points.** Todd/Tripp SD and Fall River/Oglala Lakota SD share a seat, and
   duplicate sites make the thin-plate-spline system singular. `warpers()` in `04_warp.py`
   de-duplicates before fitting; any new interpolator must too.
