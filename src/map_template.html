@@ -851,23 +851,28 @@ function start(bytes) {
     if (next !== scaleTo) { scaleTo = next; scale = next; resize(); }
   }
 
-  // the warped sheet in world km — depends on the morph, not on the camera. `hull` keeps
-  // the outline as (x, y, logStretch) so the camera can frame it exactly at any tilt.
-  const hull = new Float32Array(outLon.length * 3);
+  // The warped sheet in world km — depends on the morph, not on the camera. Each endpoint is
+  // kept as (x, y, lift) so the camera can fit either one exactly, at any tilt.
   // Each endpoint of a morph is a fixed shape; only the blend between them moves. Warping
   // both from scratch every frame was ~5,700 place() calls — trig and a grid lookup apiece —
   // on exactly the frames that also pay double in the vertex shader. Cache each side and
   // interpolate. reveal/exag/mode change what a warp means, so those invalidate both.
-  const hullA = new Float32Array(hull.length), hullB = new Float32Array(hull.length);
+  const hullA = new Float32Array(outLon.length * 3), hullB = new Float32Array(hullA.length);
   let aO = -1, aM = -1, bO = -1, bM = -1, kRev = -1, kExag = -1, kMode = -1;
-  let tsA = 1, tsB = 1;
-  // also returns this origin's *unwarped* width, which the ghost outline is measured against.
-  // It belongs to the endpoint, not to the blend, so it has to be interpolated like the hull —
-  // reading it from B alone made it jump the instant the origin changed.
-  function fillHull(st, dst) {
+  const boxA = new Float64Array(7), boxB = new Float64Array(7);
+  // `box` gets this endpoint's bounds plus its *unwarped* width, which the ghost is measured
+  // against. All of it belongs to the endpoint, not the blend.
+  function fillHull(st, dst, box) {
     for (let i = 0; i < outLon.length; i++) {
       place(outLon[i], outLat[i], st, pB);
       dst[i * 3] = pB.x; dst[i * 3 + 1] = pB.y; dst[i * 3 + 2] = pB.ls;
+    }
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, l0 = 1e9, l1 = -1e9;
+    for (let i = 0; i < dst.length; i += 3) {
+      const x = dst[i], y = dst[i + 1], l = dst[i + 2];
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+      if (l < l0) l0 = l; if (l > l1) l1 = l;
     }
     const keep = reveal; reveal = 0;
     let tx0 = 1e9, tx1 = -1e9;
@@ -876,7 +881,8 @@ function start(bytes) {
       if (x < tx0) tx0 = x; if (x > tx1) tx1 = x;
     }
     reveal = keep;
-    return Math.max(tx1 - tx0, 1);
+    box[0] = x0; box[1] = x1; box[2] = y0; box[3] = y1; box[4] = l0; box[5] = l1;
+    box[6] = Math.max(tx1 - tx0, 1);
   }
   function measure(m) {
     spanPos = SPAN[A.m][0] + (SPAN[B.m][0] - SPAN[A.m][0]) * m;
@@ -887,18 +893,12 @@ function start(bytes) {
     if (reveal !== kRev || exag !== kExag || B.m !== kMode) {
       kRev = reveal; kExag = exag; kMode = B.m; aO = bO = -1;   // a warp now means something else
     }
-    if (A.o !== aO || A.m !== aM) { tsA = fillHull(A, hullA); aO = A.o; aM = A.m; }
-    if (B.o !== bO || B.m !== bM) { tsB = fillHull(B, hullB); bO = B.o; bM = B.m; }
-    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9, l0 = 1e9, l1 = -1e9;
-    for (let i = 0; i < hull.length; i += 3) {
-      const x = hullA[i] + (hullB[i] - hullA[i]) * m;
-      const y = hullA[i + 1] + (hullB[i + 1] - hullA[i + 1]) * m;
-      const l = hullA[i + 2] + (hullB[i + 2] - hullA[i + 2]) * m;
-      hull[i] = x; hull[i + 1] = y; hull[i + 2] = l;
-      if (x < x0) x0 = x; if (x > x1) x1 = x;
-      if (y < y0) y0 = y; if (y > y1) y1 = y;
-      if (l < l0) l0 = l; if (l > l1) l1 = l;
-    }
+    if (A.o !== aO || A.m !== aM) { fillHull(A, hullA, boxA); aO = A.o; aM = A.m; }
+    if (B.o !== bO || B.m !== bM) { fillHull(B, hullB, boxB); bO = B.o; bM = B.m; }
+    // every one of these is interpolated between the endpoints rather than measured off the
+    // blend, because the blend collapses through the middle and each would pump with it
+    const q = (i) => boxA[i] + (boxB[i] - boxA[i]) * m;
+    const x0 = q(0), x1 = q(1), y0 = q(2), y1 = q(3), l0 = q(4), l1 = q(5);
     cx = (x0 + x1) / 2; cy = (y0 + y1) / 2; lsMid = (l0 + l1) / 2;
     fitSpan = Math.max(x1 - x0, y1 - y0);
     // the tallest relief the sheet can have, as a share of its own width — so a 2,000 km
@@ -908,7 +908,7 @@ function start(bytes) {
     // has to travel with the morph, or the sheet's height jumps while its shape glides.
     const hDiv = (A.m ? 2 : 1) + ((B.m ? 2 : 1) - (A.m ? 2 : 1)) * m;
     heightKm = height * 0.27 * fitSpan / hDiv;
-    ghostFit = Math.min(1, (x1 - x0) / (tsA + (tsB - tsA) * m));
+    ghostFit = Math.min(1, (x1 - x0) / q(6));
   }
 
   /* ---------------- camera ---------------- */
@@ -919,32 +919,27 @@ function start(bytes) {
     return o;
   };
   const proj = new Float32Array(16), look = new Float32Array(16);
-  function camera() {
-    const aspect = W / H, pad = Math.min(W, H) < 760 ? 1.06 : 1.16;
-    const cp = Math.cos(pitch), sp = Math.sin(pitch), cw = Math.cos(yaw), sw = Math.sin(yaw);
-    const ux = -sp * sw, uy = sp * cw, uz = cp;                      // screen up, in world
-    const fx = -cp * sw, fy = cp * cw, fz = -sp;                     // eye -> target, unit
-    let tX = cx + panX, tY = cy + panY, tZ = lsMid * heightKm, near = 0, far = 0;
-    // Solve the eye distance so every outline point lands inside the frustum — directly,
-    // because a point's depth from the eye is its own depth plus `dist`. Then slide the
-    // pivot along the up axis to centre what that showed and solve again: a tilted sheet's
-    // projected middle is nowhere near the middle of its height.
+  // Fit one endpoint's shape exactly. Writes dist and the pivot into `out`.
+  const fitA = new Float64Array(4), fitB = new Float64Array(4);
+  let nearZ = 0, farZ = 0;
+  function fitFrom(h, out, aspect, pad, cp, sp, cw, sw, ux, uy, uz, fx, fy, fz) {
+    let tX = cx + panX, tY = cy + panY, tZ = lsMid * heightKm, dist = 1;
     for (let pass = 0; pass < 2; pass++) {
       let need = fitSpan * 0.2;
-      near = 1e18; far = -1e18;
-      for (let i = 0; i < hull.length; i += 3) {
-        const dx = hull[i] - tX, dy = hull[i + 1] - tY, dz = hull[i + 2] * heightKm - tZ;
+      nearZ = 1e18; farZ = -1e18;
+      for (let i = 0; i < h.length; i += 3) {
+        const dx = h[i] - tX, dy = h[i + 1] - tY, dz = h[i + 2] * heightKm - tZ;
         const zf = dx * fx + dy * fy + dz * fz;
         const xr = Math.abs(dx * cw + dy * sw), yu = Math.abs(dx * ux + dy * uy + dz * uz);
         const d = Math.max(yu / FOV, xr / (FOV * aspect)) * pad - zf;
         if (d > need) need = d;
-        if (zf < near) near = zf; if (zf > far) far = zf;
+        if (zf < nearZ) nearZ = zf; if (zf > farZ) farZ = zf;
       }
       dist = need / zoom;
       if (pass) break;
       let ylo = 1e9, yhi = -1e9, xlo = 1e9, xhi = -1e9;
-      for (let i = 0; i < hull.length; i += 3) {
-        const dx = hull[i] - tX, dy = hull[i + 1] - tY, dz = hull[i + 2] * heightKm - tZ;
+      for (let i = 0; i < h.length; i += 3) {
+        const dx = h[i] - tX, dy = h[i + 1] - tY, dz = h[i + 2] * heightKm - tZ;
         const w = FOV * (dx * fx + dy * fy + dz * fz + dist);
         const ny = (dx * ux + dy * uy + dz * uz) / w, nx = (dx * cw + dy * sw) / (w * aspect);
         if (ny < ylo) ylo = ny; if (ny > yhi) yhi = ny;
@@ -952,6 +947,33 @@ function start(bytes) {
       }
       const sy = (ylo + yhi) * 0.5 * FOV * dist, sx = (xlo + xhi) * 0.5 * FOV * aspect * dist;
       tX += sy * ux + sx * cw; tY += sy * uy + sx * sw; tZ += sy * uz;
+    }
+    out[0] = dist; out[1] = tX; out[2] = tY; out[3] = tZ;
+  }
+
+  function camera() {
+    const aspect = W / H, pad = Math.min(W, H) < 760 ? 1.06 : 1.16;
+    const cp = Math.cos(pitch), sp = Math.sin(pitch), cw = Math.cos(yaw), sw = Math.sin(yaw);
+    const ux = -sp * sw, uy = sp * cw, uz = cp;                      // screen up, in world
+    const fx = -cp * sw, fy = cp * cw, fz = -sp;                     // eye -> target, unit
+    // Fit each endpoint and interpolate, rather than re-fitting the blend. Halfway between
+    // two very different warps the sheet collapses — points pass through the middle — so a
+    // fit measured there chases the map in and back out again. Seattle to Washington dipped
+    // 17.6% and returned, which is the lurch you see. Both endpoint fits are exact and the
+    // travel between them is monotone; the blend always sits inside it.
+    let near, far;
+    fitFrom(hullB, fitB, aspect, pad, cp, sp, cw, sw, ux, uy, uz, fx, fy, fz);
+    near = nearZ; far = farZ;
+    let tX, tY, tZ;
+    if (m < 1) {
+      fitFrom(hullA, fitA, aspect, pad, cp, sp, cw, sw, ux, uy, uz, fx, fy, fz);
+      near = Math.min(near, nearZ); far = Math.max(far, farZ);
+      dist = fitA[0] + (fitB[0] - fitA[0]) * m;
+      tX = fitA[1] + (fitB[1] - fitA[1]) * m;
+      tY = fitA[2] + (fitB[2] - fitA[2]) * m;
+      tZ = fitA[3] + (fitB[3] - fitA[3]) * m;
+    } else {
+      dist = fitB[0]; tX = fitB[1]; tY = fitB[2]; tZ = fitB[3];
     }
     eye[0] = tX + dist * cp * sw; eye[1] = tY - dist * cp * cw; eye[2] = tZ + dist * sp;
     const sx = fy * uz - fz * uy, sy = fz * ux - fx * uz, sz = fx * uy - fy * ux;
@@ -965,6 +987,7 @@ function start(bytes) {
               0, 0, (f + n) / (n - f), -1, 0, 0, (2 * f * n) / (n - f), 0]);
     mul4(proj, look, VP);
   }
+
   const sp_ = { x: 0, y: 0, w: 1 };
   function toScreen(x, y, z) {                     // world km -> css px, with w for depth
     const w = VP[3] * x + VP[7] * y + VP[11] * z + VP[15], iw = 1 / (w || 1e-6);
