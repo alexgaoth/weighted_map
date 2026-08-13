@@ -649,7 +649,8 @@ function start(bytes) {
   const q = document.getElementById("q"), list = document.getElementById("list");
   function goto(o, m, user = true) {
     if (o === B.o && m === B.m) return;
-    A = { o: B.o, m: B.m }; B = { o, m }; mixT = 0; morphT0 = performance.now();
+    A = { o: B.o, m: B.m }; B = { o, m }; mixT = 0; mixEase = 0;
+    morphT0 = performance.now();   // a morph always starts *at* A, never part-way
     setOrigins(A.o, B.o, true);        // the outgoing B is the incoming A, so reuse it
     if (user) { touring = false; syncTour(); }
     document.querySelectorAll("#modes button").forEach(b =>
@@ -951,7 +952,7 @@ function start(bytes) {
     out[0] = dist; out[1] = tX; out[2] = tY; out[3] = tZ;
   }
 
-  function camera() {
+  function camera(m) {
     const aspect = W / H, pad = Math.min(W, H) < 760 ? 1.06 : 1.16;
     const cp = Math.cos(pitch), sp = Math.sin(pitch), cw = Math.cos(yaw), sw = Math.sin(yaw);
     const ux = -sp * sw, uy = sp * cw, uz = cp;                      // screen up, in world
@@ -1226,32 +1227,36 @@ function start(bytes) {
   /* ---------------- loop ---------------- */
   const ease = (t) => t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
   const glide = (v, to, k, snap) => Math.abs(to - v) < snap ? to : v + (to - v) * (reduce ? 1 : k);
-  let m = 1, warm = true;
+  let mixEase = 1, warm = true;
   let lastNow = 0;
   function frame(now) {
     adapt(lastNow ? now - lastNow : 0); lastNow = now;
     // measuring the sheet costs a few thousand warps, so only redo it when it moved —
     // orbiting the camera does not move it
     let shifted = warm; warm = false;
+    // The tour advances *before* the easing below, not after. Called after it, goto() would
+    // swap A and B while `m` still held last frame's 1, and the frame would draw one clean
+    // picture of the destination — framed by a camera still fitted to the map it is leaving —
+    // before snapping back to the start to morph. One frame, very visible, play button only.
+    if (touring && tourStops.length && now - tourT0 > 2400) {
+      tourT0 = now;
+      tourAt = (tourAt + 1) % tourStops.length;
+      goto(tourStops[tourAt], B.m, false);
+    }
     if (mixT < 1) { mixT = Math.min(1, Math.max(0, (now - morphT0) / MORPH));
-                    if (mixT >= 1) A = { ...B }; m = ease(mixT); shifted = true; }
+                    if (mixT >= 1) A = { ...B }; mixEase = ease(mixT); shifted = true; }
     if (reveal !== revealTo) { reveal = glide(reveal, revealTo, 0.075, 0.0012); shifted = true; }
     if (exag !== exagTo) { exag = glide(exag, exagTo, 0.16, 0.002); shifted = true; }
     if (height !== heightTo) { height = glide(height, heightTo, 0.16, 0.002); shifted = true; }
     if (Math.abs(exag - shownExag) > 0.01) { shownExag = exag; applyPalette(); }
     if (yaw !== yawTo) yaw = glide(yaw, yawTo, 0.1, 0.0015);
     if (pitch !== pitchTo) pitch = glide(pitch, pitchTo, 0.1, 0.0015);
-    if (touring && tourStops.length && now - tourT0 > 2400) {
-      tourT0 = now;
-      tourAt = (tourAt + 1) % tourStops.length;
-      goto(tourStops[tourAt], B.m, false);
-    }
     // Draw every frame. Skipping the paint when nothing moved looks like free money and is
     // not: a page that paints nothing stops being served frames at all, rAF goes quiet, and
     // every timed thing — the opening dissolve, the tour, any easing — freezes where it is.
     // Measured at 0 rAF callbacks across 5 s of idle. Make frames cheaper, not rarer.
-    if (shifted) measure(m);
-    camera(); render(m); overlay(m);
+    if (shifted) measure(mixEase);
+    camera(mixEase); render(mixEase); overlay(mixEase);
     requestAnimationFrame(frame);
   }
 
