@@ -36,7 +36,14 @@ Maps of the contiguous US where distance from an origin is replaced by travel ti
   256 of them, so the two modes are stacked *within* a layer (texture height `nlat * 2`, and
   `raw()` in the shader offsets the row). `MAX_ORIGINS` in `20_pick_nodes.py` asserts it.
 - `place()` in `map_template.html` and the vertex shader's `world()` must agree exactly, `lift()`
-  included, or the origin dots and the framing float off the surface.
+  included **and the span it divides by** — the shader interpolates that across a mode change, so
+  reading `SPAN[B.m]` on the CPU floats the dots off the surface for the length of a morph.
+- **Anything that frames the map is interpolated between the two endpoints, never measured off
+  the blend.** Halfway between two different warps the sheet collapses — points pass through the
+  middle — so a fit taken there pulls the camera in and pushes it back out. Simulated over the
+  tour route, Seattle→Washington dipped 17.6% and returned. `camera()` fits `hullA` and `hullB`
+  separately and travels between them; `fitSpan`, `heightKm`, the pivot and `ghostFit` all lerp
+  the same way. Re-measuring the blend "to simplify" puts the lurch straight back.
 - The per-mode colour spans `23_build_dist.py` measures also set the **terrain height** — `lift()`
   divides by the same `uSpanPos`/`uSpanNeg`. Re-picking those percentiles reshapes the relief.
 - **`EXAG` is per mode** — Drive `s^k` runs 1.0→2.6, Fly 0.35→1.0, and each notch is its default.
@@ -47,6 +54,11 @@ Maps of the contiguous US where distance from an origin is replaced by travel ti
 
 ## Gotchas
 
+- **The stretch grid is `R16F`, not `R16UI`,** purely so the sampler can filter it: one
+  `texture()` call instead of four `texelFetch` and six mixes by hand, on ~476k vertices a frame.
+  Integer textures cannot be filtered at all. The two modes share a layer, so `raw()`'s clamp to
+  `uGridSize - 1.001` is load-bearing — it keeps the bilinear kernel one row short of the seam,
+  and without it Drive bleeds into Fly.
 - **The stretch grid texture.** A grid row is `nlon * 2` bytes and `nlon` is odd (121), so the
   default 4-byte `UNPACK_ALIGNMENT` makes GL reject `texSubImage3D` and leave the texture zeroed —
   every stretch reads 0 and the map renders at ~1/10 scale, silently.
